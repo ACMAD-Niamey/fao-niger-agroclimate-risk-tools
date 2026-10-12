@@ -15,9 +15,12 @@ from qgis.core import (
     QgsProcessing,
     QgsProcessingAlgorithm,
     QgsProcessingException,
+    QgsProcessingParameterEnum,
     QgsProcessingParameterFeatureSink,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterField,
+    QgsProcessingParameterString,
+    QgsVectorLayer,
 )
 
 try:
@@ -33,6 +36,7 @@ from agroclimate_core.risk import (
     calculate_risk_score,
     classify_risk,
 )
+from agroclimate_core.acmad_boundaries import build_wfs_getfeature_url, niger_boundary_request
 
 try:
     from .fields import OUTPUT_FIELD_DEFINITIONS
@@ -41,6 +45,10 @@ except ImportError:
 
 
 class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
+    BOUNDARY_SOURCE = "BOUNDARY_SOURCE"
+    WFS_URL = "WFS_URL"
+    ADMIN_LEVEL = "ADMIN_LEVEL"
+    TYPE_NAME = "TYPE_NAME"
     INPUT = "INPUT"
     CDI_FIELD = "CDI_FIELD"
     FAPAR_FIELD = "FAPAR_FIELD"
@@ -51,6 +59,14 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
     VULNERABILITY_FIELD = "VULNERABILITY_FIELD"
     OUTPUT = "OUTPUT"
     OUTPUT_FIELD_NAMES = [name for name, _field_type in OUTPUT_FIELD_DEFINITIONS]
+    BOUNDARY_SOURCE_OPTIONS = [
+        "Use existing QGIS vector layer",
+        "Fetch Niger boundary from ACMAD WFS",
+    ]
+    ADMIN_LEVEL_OPTIONS = [
+        "Admin level 0 - country boundary",
+        "Admin level 1 - first administrative level",
+    ]
 
     def tr(self, string):
         return QCoreApplication.translate("AgropastoralDroughtRisk", string)
@@ -74,15 +90,49 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
         return self.tr(
             "Calculates agropastoral drought risk from ACMAD CDI, optional fAPAR and soil moisture anomaly fields, "
             "and local exposure fields. The output adds hazard_score, exposure_score, risk_score, and risk_class. "
+            "The zonal layer can be selected from QGIS or fetched from ACMAD WFS for Niger boundaries. "
             "This Processing algorithm is the backend used by the future plugin UI."
         )
 
     def initAlgorithm(self, config=None):
         self.addParameter(
+            QgsProcessingParameterEnum(
+                self.BOUNDARY_SOURCE,
+                self.tr("Zonal boundary source"),
+                options=self.BOUNDARY_SOURCE_OPTIONS,
+                defaultValue=0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterString(
+                self.WFS_URL,
+                self.tr("ACMAD WFS URL, used when fetching boundary"),
+                defaultValue="",
+                optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.ADMIN_LEVEL,
+                self.tr("ACMAD boundary admin level"),
+                options=self.ADMIN_LEVEL_OPTIONS,
+                defaultValue=0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterString(
+                self.TYPE_NAME,
+                self.tr("Override WFS typeName/layer name, optional"),
+                defaultValue="",
+                optional=True,
+            )
+        )
+        self.addParameter(
             QgsProcessingParameterFeatureSource(
                 self.INPUT,
-                self.tr("Input zonal layer"),
+                self.tr("Input zonal layer, used when source is existing QGIS layer"),
                 [QgsProcessing.TypeVectorAnyGeometry],
+                optional=True,
             )
         )
         self.addParameter(
@@ -90,6 +140,7 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
                 self.CDI_FIELD,
                 self.tr("CDI field"),
                 parentLayerParameterName=self.INPUT,
+                optional=True,
             )
         )
         self.addParameter(
@@ -113,6 +164,7 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
                 self.CULTIVATED_FIELD,
                 self.tr("Cultivated exposure field"),
                 parentLayerParameterName=self.INPUT,
+                optional=True,
             )
         )
         self.addParameter(
@@ -120,6 +172,7 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
                 self.RANGELAND_FIELD,
                 self.tr("Rangeland exposure field"),
                 parentLayerParameterName=self.INPUT,
+                optional=True,
             )
         )
         self.addParameter(
@@ -127,6 +180,7 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
                 self.WATER_FIELD,
                 self.tr("Water-point exposure field"),
                 parentLayerParameterName=self.INPUT,
+                optional=True,
             )
         )
         self.addParameter(
@@ -140,16 +194,14 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr("Risk output")))
 
     def processAlgorithm(self, parameters, context, feedback):
-        source = self.parameterAsSource(parameters, self.INPUT, context)
-        if source is None:
-            raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT))
+        source, source_crs, source_wkb_type = self._resolve_source(parameters, context, feedback)
 
-        cdi_field = self.parameterAsString(parameters, self.CDI_FIELD, context)
+        cdi_field = self._required_field(parameters, self.CDI_FIELD, context, "CDI field")
         fapar_field = self.parameterAsString(parameters, self.FAPAR_FIELD, context)
         soil_field = self.parameterAsString(parameters, self.SOIL_FIELD, context)
-        cultivated_field = self.parameterAsString(parameters, self.CULTIVATED_FIELD, context)
-        rangeland_field = self.parameterAsString(parameters, self.RANGELAND_FIELD, context)
-        water_field = self.parameterAsString(parameters, self.WATER_FIELD, context)
+        cultivated_field = self._required_field(parameters, self.CULTIVATED_FIELD, context, "cultivated exposure field")
+        rangeland_field = self._required_field(parameters, self.RANGELAND_FIELD, context, "rangeland exposure field")
+        water_field = self._required_field(parameters, self.WATER_FIELD, context, "water-point exposure field")
         vulnerability_field = self.parameterAsString(parameters, self.VULNERABILITY_FIELD, context)
 
         fields = QgsFields(source.fields())
@@ -162,8 +214,8 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT,
             context,
             fields,
-            source.wkbType(),
-            source.sourceCrs(),
+            source_wkb_type,
+            source_crs,
         )
         if sink is None:
             raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
@@ -200,3 +252,41 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
             feedback.setProgress(int(current * total))
 
         return {self.OUTPUT: dest_id}
+
+    def _required_field(self, parameters, parameter_name, context, label):
+        field_name = self.parameterAsString(parameters, parameter_name, context).strip()
+        if not field_name:
+            raise QgsProcessingException(
+                f"Missing {label}. If you fetched a boundary from ACMAD WFS, it provides geometry only; "
+                "join or calculate the CDI and exposure fields before running the risk score."
+            )
+        return field_name
+
+    def _resolve_source(self, parameters, context, feedback):
+        boundary_source = self.parameterAsEnum(parameters, self.BOUNDARY_SOURCE, context)
+        if boundary_source == 0:
+            source = self.parameterAsSource(parameters, self.INPUT, context)
+            if source is None:
+                raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT))
+            return source, source.sourceCrs(), source.wkbType()
+
+        wfs_url = self.parameterAsString(parameters, self.WFS_URL, context).strip()
+        if not wfs_url:
+            raise QgsProcessingException("ACMAD WFS URL is required when fetching the zonal boundary from ACMAD WFS")
+
+        admin_level = self.parameterAsEnum(parameters, self.ADMIN_LEVEL, context)
+        type_name = self.parameterAsString(parameters, self.TYPE_NAME, context).strip() or None
+        request = niger_boundary_request(
+            wfs_url=wfs_url,
+            admin_level=admin_level,
+            type_name=type_name,
+        )
+        getfeature_url = build_wfs_getfeature_url(request)
+        feedback.pushInfo(f"Fetching zonal boundary from: {getfeature_url}")
+
+        layer = QgsVectorLayer(getfeature_url, f"ACMAD Niger admin {admin_level}", "ogr")
+        if not layer.isValid():
+            raise QgsProcessingException(
+                "Could not load ACMAD WFS boundary as a vector layer. Check the WFS URL, layer name, and network access."
+            )
+        return layer, layer.crs(), layer.wkbType()

@@ -28,6 +28,12 @@ class QgisHelperTests(unittest.TestCase):
         self.assertIn("country_code=181", source)
         self.assertIn("data_api_adminlevelzero", source)
 
+    def test_risk_algorithm_exposes_boundary_source_controls(self):
+        source = (REPO_ROOT / "qgis" / "processing" / "agropastoral_drought_risk.py").read_text()
+        self.assertIn("Zonal boundary source", source)
+        self.assertIn("Fetch Niger boundary from ACMAD WFS", source)
+        self.assertIn("ACMAD WFS URL", source)
+
     def test_bootstrap_adds_src_path(self):
         bootstrap = load_module("qgis_bootstrap", REPO_ROOT / "qgis" / "processing" / "bootstrap.py")
         src_path = str(REPO_ROOT / "src")

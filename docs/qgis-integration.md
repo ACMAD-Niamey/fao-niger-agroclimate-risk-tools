@@ -62,6 +62,23 @@ Agropastoral Drought Risk Map
 
 It expects a vector layer where each feature already represents the reporting unit or analysis unit to be scored. This can be an administrative unit, FAO intervention zone, livelihood zone, or precomputed zonal overlay.
 
+The risk algorithm now exposes the zonal boundary source directly:
+
+```text
+Zonal boundary source:
+- Use existing QGIS vector layer
+- Fetch Niger boundary from ACMAD WFS
+```
+
+When the ACMAD WFS option is selected, the tool fetches the Niger boundary geometry using:
+
+```text
+typeName = data_api_adminlevelzero
+CQL_FILTER = country_code=181
+```
+
+The fetched boundary still needs CDI and exposure fields before risk scoring can run. Until the overlay/join workflow is implemented, users should either select an existing layer that already contains the scoring fields or fetch the boundary first and then join/calculate the required fields.
+
 The algorithm adds:
 
 ```text

@@ -21,6 +21,7 @@ The intended outputs include:
 ## Documentation
 
 - [Technical note](docs/technical-note.md): product architecture, inputs, outputs, formulas, implementation approach, and references.
+- [Project plan and current status](docs/project-plan-status.md): what has been implemented, current limitations, and next steps.
 - [Documentation index](docs/README.md): entry point for all technical and product documentation.
 - [Product documentation](docs/products/README.md): index for each product specification as it is developed.
 - [Agropastoral Drought Risk Map](docs/products/agropastoral-drought-risk-map.md): first implementation product specification.

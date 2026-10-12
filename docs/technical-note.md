@@ -7,7 +7,7 @@ This technical note defines the proposed product architecture, data inputs, anal
 The proposed approach is to build a modular workflow that uses:
 
 - ACMAD's drought and forecast products as authoritative climate service inputs.
-- Google Earth Engine (GEE) for complementary Earth observation indicators and custom spatial analysis.
+- Google Earth Engine (GEE) for future complementary Earth observation indicators and custom spatial analysis where ACMAD products do not cover the required indicator.
 - QGIS as the operational integration, visualization, map production, and handover environment.
 - QGIS Processing scripts as the first implementation layer, written so they can later be wrapped inside a QGIS plugin with a simple user interface.
 - Optional LLM-assisted advisory drafting, where the LLM supports language generation only after indicators and rule-based interpretation have been computed and validated.
@@ -26,7 +26,7 @@ ACMAD's African Drought Monitoring and Advisory system already provides drought-
 
 The workflow should therefore avoid duplicating ACMAD's existing drought products. Instead, the system should consume ACMAD products and combine them with agricultural exposure, pastoral exposure, water access, and socioeconomic vulnerability layers to generate operational risk and advisory outputs.
 
-GEE will be used where additional Earth observation processing is required, for example NDVI anomaly, rangeland condition, surface water dynamics, land cover masks, soil moisture proxies, heat stress, or custom start-of-season indicators. GEE is appropriate for this role because it provides cloud-based access to large geospatial datasets and scalable processing for environmental monitoring applications, including drought, food security, and climate monitoring. See Gorelick et al. (2017): https://doi.org/10.1016/j.rse.2017.06.031.
+For the initial implementation, the drought evidence stack should come from ACMAD products rather than custom GEE computation. The first product will use CDI, fAPAR anomaly, and soil moisture anomaly from ACMAD, combined with local agricultural, pastoral, water-point, administrative, and vulnerability layers. GEE will remain a future extension for indicators not already available through ACMAD, such as NDVI anomaly, surface water dynamics, land cover refinements, heat stress, or custom start-of-season indicators. GEE is appropriate for that future role because it provides cloud-based access to large geospatial datasets and scalable processing for environmental monitoring applications, including drought, food security, and climate monitoring. See Gorelick et al. (2017): https://doi.org/10.1016/j.rse.2017.06.031.
 
 QGIS will remain the main operational environment for local review, map production, style management, layout templates, and staff handover.
 
@@ -53,6 +53,8 @@ Identify areas where drought hazard overlaps with agricultural and pastoral expo
 ### Primary Inputs
 
 - ACMAD Combined Drought Indicator
+- ACMAD fAPAR anomaly
+- ACMAD soil moisture anomaly
 - ACMAD drought hazard forecast
 - Cultivated area layer
 - Rangeland or pastoral zone layer
@@ -71,7 +73,21 @@ Risk = Hazard x Exposure x Vulnerability
 
 This framing is consistent with IPCC risk terminology, where risk emerges from interactions between hazard, exposure, and vulnerability. See IPCC AR6 framing: https://www.ipcc.ch/report/ar6/wg1/chapter/chapter-1/.
 
-For implementation, the first version should use a transparent weighted score:
+For implementation, the first version should use CDI as the primary hazard class, with fAPAR anomaly and soil moisture anomaly retained as diagnostic evidence or added to a composite hazard score after validation.
+
+Initial hazard option:
+
+```text
+Hazard Score = CDI class score
+```
+
+Composite hazard option, after validation:
+
+```text
+Hazard Score = 0.60 CDI + 0.20 fAPAR anomaly class + 0.20 soil moisture anomaly class
+```
+
+The first risk formula should use a transparent weighted score:
 
 ```text
 Agropastoral Risk Score = 0.50H + 0.30E + 0.20V
@@ -188,7 +204,7 @@ Identify pastoral areas where drought hazard, vegetation stress, and water acces
 
 - ACMAD CDI
 - ACMAD drought hazard forecast
-- NDVI or fAPAR anomaly
+- ACMAD fAPAR anomaly
 - Rangeland mask
 - Surface water or water-point layer
 - Distance to water points
@@ -288,8 +304,8 @@ Define objective thresholds that can support anticipatory action discussions and
 - Rainfall anomaly
 - Start-of-season indicator
 - Dry-spell indicator
-- Soil moisture anomaly
-- NDVI or fAPAR anomaly
+- ACMAD soil moisture anomaly
+- ACMAD fAPAR anomaly
 - Cropping-zone risk map
 - Pastoral stress map
 - Exposure and vulnerability layers
@@ -405,13 +421,12 @@ Access method:
 
 ### GEE Inputs
 
-GEE should be used for complementary indicators and custom processing.
+GEE should not be required for the initial implementation. It should be treated as a future extension for complementary indicators and custom processing where ACMAD products do not already meet the product requirement.
 
 Potential GEE-derived indicators:
 
 - NDVI anomaly
 - Vegetation condition index
-- fAPAR or proxy vegetation anomaly if available
 - Surface water occurrence or change
 - Land cover and cultivated area masks
 - Rangeland masks
@@ -525,8 +540,8 @@ Step 2: Select period and geography
 
 Step 3: Select data sources
 - Fetch from ACMAD API
-- Pull from GEE
 - Use cached local data
+- Pull from GEE, future extension only
 
 Step 4: Generate outputs
 - Map layers
@@ -542,15 +557,13 @@ The recommended operational workflow is:
 1. User selects reporting period and product.
 2. Script checks local cache for required ACMAD products.
 3. If missing or outdated, script fetches products from ACMAD API.
-4. Script checks whether complementary GEE indicators are required.
-5. GEE outputs are generated or downloaded.
-6. Risk formulas are applied in QGIS Processing.
-7. Outputs are summarized by administrative unit or FAO intervention zone.
-8. Styles and layouts are applied.
-9. Export package is generated.
-10. Technical user reviews the outputs.
-11. Advisory language is drafted using rule-based templates, optionally with LLM assistance.
-12. FAO Niger or national counterparts validate the product before dissemination.
+4. Risk formulas are applied in QGIS Processing.
+5. Outputs are summarized by administrative unit or FAO intervention zone.
+6. Styles and layouts are applied.
+7. Export package is generated.
+8. Technical user reviews the outputs.
+9. Advisory language is drafted using rule-based templates, optionally with LLM assistance.
+10. FAO Niger or national counterparts validate the product before dissemination.
 
 ## 14. Threshold Development
 
@@ -564,7 +577,7 @@ Example:
 
 ```text
 CDI alert + high cultivated exposure = high crop risk
-CDI warning + high rangeland exposure + negative NDVI anomaly = high pastoral risk
+CDI warning + high rangeland exposure + negative fAPAR anomaly = high pastoral risk
 CDI alert + high vulnerability = anticipatory action alert
 ```
 
@@ -618,7 +631,6 @@ Tasks:
 - Confirm priority administrative levels and intervention zones
 - Inventory available exposure and vulnerability layers
 - Test ACMAD API access
-- Test GEE authentication and export workflow
 - Build prototype agropastoral risk map
 
 Outputs:
@@ -633,7 +645,6 @@ Outputs:
 Tasks:
 
 - Develop ACMAD API fetch scripts
-- Develop GEE indicator scripts
 - Develop risk scoring scripts
 - Develop administrative summaries
 - Develop map export package

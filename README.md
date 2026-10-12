@@ -6,7 +6,7 @@ The repository is documentation-first. It defines the products, data inputs, for
 
 ## Purpose
 
-This work supports the development of operational products that combine ACMAD drought and forecast information, Google Earth Engine indicators, QGIS workflows, land use and land cover data, and socioeconomic exposure layers.
+This work supports the development of operational products that combine ACMAD drought and forecast information, QGIS workflows, land use and land cover data, and socioeconomic exposure layers. Google Earth Engine indicators are treated as future extensions, not dependencies for the initial implementation.
 
 The intended outputs include:
 
@@ -23,6 +23,7 @@ The intended outputs include:
 - [Technical note](docs/technical-note.md): product architecture, inputs, outputs, formulas, implementation approach, and references.
 - [Documentation index](docs/README.md): entry point for all technical and product documentation.
 - [Product documentation](docs/products/README.md): index for each product specification as it is developed.
+- [Agropastoral Drought Risk Map](docs/products/agropastoral-drought-risk-map.md): first implementation product specification.
 
 ## Implementation Direction
 
@@ -30,15 +31,16 @@ The proposed implementation path is:
 
 1. Define and validate the products.
 2. Confirm ACMAD API products and response formats.
-3. Identify complementary GEE-derived indicators.
+3. Build the first product using ACMAD CDI, fAPAR anomaly, soil moisture anomaly, and local exposure layers.
 4. Build QGIS Processing scripts for each product.
 5. Keep scripts plugin-ready through clean parameters and outputs.
-6. Wrap stable scripts in a simple QGIS plugin interface when the workflow is mature.
+6. Add GEE-derived indicators later only where ACMAD products do not cover the required indicator.
+7. Wrap stable scripts in a simple QGIS plugin interface when the workflow is mature.
 
 ## Core Architecture
 
 ```text
-ACMAD API + GEE + local exposure layers
+ACMAD API + local exposure layers
         |
         v
 QGIS Processing scripts
@@ -50,9 +52,10 @@ Risk maps + advisory products + trigger matrices
 QGIS layouts, reports, tables, and handover materials
 ```
 
+Future extensions may add GEE-derived indicators such as NDVI anomaly, surface water, land cover refinements, heat stress, or start-of-season metrics.
+
 ## Repository Status
 
 Current status: documentation and product design.
 
 Implementation scripts, QGIS templates, styles, and plugin components will be added after the product specifications are reviewed and accepted.
-

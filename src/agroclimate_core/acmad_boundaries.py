@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 DEFAULT_WFS_VERSION = "1.0.0"
 DEFAULT_OUTPUT_FORMAT = "application/json"
+DEFAULT_ACMAD_GEOSERVER_URL = "https://ada.acmad.org/geoserver"
 DEFAULT_ACMAD_ADMIN_LAYERS = {
     0: "data_api_adminlevelzero",
     1: "data_api_adminlevelone",
@@ -67,13 +68,28 @@ def extract_wfs_url(country_info: Mapping[str, Any]) -> str | None:
     for key in ("wfs_url", "geoserver_wfs_url", "boundary_wfs_url"):
         value = country_info.get(key)
         if value:
-            return str(value)
+            return normalize_wfs_url(str(value))
 
     geoserver_url = country_info.get("geoserver_url")
     if geoserver_url:
-        return str(geoserver_url).rstrip("/") + "/ows"
+        return normalize_wfs_url(str(geoserver_url))
 
     return None
+
+
+def normalize_wfs_url(url: str) -> str:
+    """Normalize GeoServer base URLs to a WFS-capable OWS endpoint."""
+
+    normalized = url.strip().rstrip("/")
+    if not normalized:
+        raise ValueError("WFS URL is required")
+    if "?" in normalized:
+        return normalized
+    if normalized.endswith("/ows") or normalized.endswith("/wfs"):
+        return normalized
+    if normalized.endswith("/geoserver"):
+        return normalized + "/ows"
+    return normalized
 
 
 def boundary_type_name(country_info: Mapping[str, Any], admin_level: int) -> str:
@@ -129,7 +145,8 @@ def build_cql_filter(country_code: str | int, country_field: str = "country_code
 def build_wfs_getfeature_url(request: BoundaryRequest) -> str:
     """Build a WFS GetFeature URL that returns GeoJSON."""
 
-    separator = "&" if "?" in request.wfs_url else "?"
+    wfs_url = normalize_wfs_url(request.wfs_url)
+    separator = "&" if "?" in wfs_url else "?"
     query = urlencode(
         {
             "service": "WFS",
@@ -140,7 +157,7 @@ def build_wfs_getfeature_url(request: BoundaryRequest) -> str:
             "CQL_FILTER": build_cql_filter(request.country_code, request.country_field),
         }
     )
-    return f"{request.wfs_url}{separator}{query}"
+    return f"{wfs_url}{separator}{query}"
 
 
 def boundary_request_from_country_info(
@@ -154,7 +171,7 @@ def boundary_request_from_country_info(
     """Create a WFS boundary request from ACMAD country-info metadata."""
 
     resolved_country_code = normalize_country_code(country_code) if country_code else extract_country_code(country_info)
-    resolved_wfs_url = wfs_url or extract_wfs_url(country_info)
+    resolved_wfs_url = normalize_wfs_url(wfs_url) if wfs_url else extract_wfs_url(country_info)
     if not resolved_wfs_url:
         raise ValueError("A WFS URL is required in country metadata or as an override")
 

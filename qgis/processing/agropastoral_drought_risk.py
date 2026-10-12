@@ -36,7 +36,7 @@ from agroclimate_core.risk import (
     calculate_risk_score,
     classify_risk,
 )
-from agroclimate_core.acmad_boundaries import build_wfs_getfeature_url, niger_boundary_request
+from agroclimate_core.acmad_boundaries import DEFAULT_ACMAD_GEOSERVER_URL, build_wfs_getfeature_url, niger_boundary_request
 
 try:
     from .fields import OUTPUT_FIELD_DEFINITIONS
@@ -107,7 +107,7 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterString(
                 self.WFS_URL,
                 self.tr("ACMAD WFS URL, used when fetching boundary"),
-                defaultValue="",
+                defaultValue=DEFAULT_ACMAD_GEOSERVER_URL,
                 optional=True,
             )
         )

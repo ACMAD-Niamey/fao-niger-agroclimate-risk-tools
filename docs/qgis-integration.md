@@ -99,11 +99,21 @@ It exposes the API/WFS boundary option in QGIS. Use it before the risk algorithm
 Parameters:
 
 ```text
-ACMAD WFS URL
+ACMAD WFS URL, defaults to https://ada.acmad.org/geoserver
 Boundary admin level
 Override WFS typeName/layer name (optional)
 Boundary output
 ```
+
+The URL remains editable. The code normalizes `https://ada.acmad.org/geoserver` to `https://ada.acmad.org/geoserver/ows` when building the WFS GetFeature request.
+
+Tested Niger admin-0 request:
+
+```text
+https://ada.acmad.org/geoserver/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=data_api_adminlevelzero&outputFormat=application/json&CQL_FILTER=country_code=181
+```
+
+The endpoint returns GeoJSON for Niger. The QGIS tool loads the WFS URL directly through QGIS/GDAL rather than Python `urllib`, avoiding local Python certificate-store issues.
 
 For Niger admin level 0, it defaults to:
 
@@ -207,8 +217,8 @@ Boundary source:
 - Existing QGIS layer
 - Fetch from ACMAD WFS
 
-Country code:
-- 181 for Niger
+ACMAD WFS URL:
+- https://ada.acmad.org/geoserver
 
 Admin level:
 - 0 country

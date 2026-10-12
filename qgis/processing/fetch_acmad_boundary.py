@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-import urllib.request
-from pathlib import Path
-
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
     QgsFeature,
@@ -26,7 +22,7 @@ except ImportError:
 
 ensure_src_path()
 
-from agroclimate_core.acmad_boundaries import build_wfs_getfeature_url, niger_boundary_request
+from agroclimate_core.acmad_boundaries import DEFAULT_ACMAD_GEOSERVER_URL, build_wfs_getfeature_url, niger_boundary_request
 
 
 class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):
@@ -70,7 +66,7 @@ class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterString(
                 self.WFS_URL,
                 self.tr("ACMAD WFS URL"),
-                defaultValue="",
+                defaultValue=DEFAULT_ACMAD_GEOSERVER_URL,
             )
         )
         self.addParameter(
@@ -107,8 +103,7 @@ class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):
         getfeature_url = build_wfs_getfeature_url(request)
         feedback.pushInfo(f"Fetching boundary from: {getfeature_url}")
 
-        layer_path = self._download_geojson(getfeature_url)
-        layer = QgsVectorLayer(str(layer_path), f"ACMAD Niger admin {admin_level}", "ogr")
+        layer = QgsVectorLayer(getfeature_url, f"ACMAD Niger admin {admin_level}", "ogr")
         if not layer.isValid():
             raise QgsProcessingException(
                 "Could not load boundary response as a vector layer. Check the WFS URL, layer name, and network access."
@@ -137,12 +132,3 @@ class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):
             feedback.setProgress(int(current * total))
 
         return {self.OUTPUT: dest_id}
-
-    def _download_geojson(self, url: str) -> Path:
-        with urllib.request.urlopen(url, timeout=60) as response:
-            body = response.read()
-
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".geojson")
-        with temp_file:
-            temp_file.write(body)
-        return Path(temp_file.name)

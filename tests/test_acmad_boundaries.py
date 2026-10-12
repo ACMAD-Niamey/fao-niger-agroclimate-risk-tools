@@ -6,6 +6,7 @@ from agroclimate_core.acmad_boundaries import (
     boundary_request_from_country_info,
     build_wfs_getfeature_url,
     niger_boundary_request,
+    normalize_wfs_url,
 )
 
 
@@ -27,6 +28,22 @@ class AcmadBoundaryTests(unittest.TestCase):
         self.assertEqual(query["typeName"], ["acmad:adm0"])
         self.assertEqual(query["outputFormat"], ["application/json"])
         self.assertEqual(query["CQL_FILTER"], ["iso3='NER'"])
+
+    def test_geoserver_base_url_is_normalized_to_ows(self):
+        self.assertEqual(
+            normalize_wfs_url("https://ada.acmad.org/geoserver"),
+            "https://ada.acmad.org/geoserver/ows",
+        )
+        url = build_wfs_getfeature_url(
+            BoundaryRequest(
+                wfs_url="https://ada.acmad.org/geoserver",
+                type_name="data_api_adminlevelzero",
+                country_code=181,
+            )
+        )
+        self.assertTrue(url.startswith("https://ada.acmad.org/geoserver/ows?"))
+        self.assertIn("typeName=data_api_adminlevelzero", url)
+        self.assertIn("CQL_FILTER=country_code%3D181", url)
 
     def test_boundary_request_from_explicit_country_info(self):
         request = boundary_request_from_country_info(

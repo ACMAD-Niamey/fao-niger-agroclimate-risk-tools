@@ -22,6 +22,12 @@ class QgisHelperTests(unittest.TestCase):
             ["hazard_score", "exposure_score", "risk_score", "risk_class"],
         )
 
+    def test_fetch_boundary_algorithm_source_mentions_actual_niger_defaults(self):
+        source = (REPO_ROOT / "qgis" / "processing" / "fetch_acmad_boundary.py").read_text()
+        self.assertIn("Fetch ACMAD Boundary Layer", source)
+        self.assertIn("country_code=181", source)
+        self.assertIn("data_api_adminlevelzero", source)
+
     def test_bootstrap_adds_src_path(self):
         bootstrap = load_module("qgis_bootstrap", REPO_ROOT / "qgis" / "processing" / "bootstrap.py")
         src_path = str(REPO_ROOT / "src")

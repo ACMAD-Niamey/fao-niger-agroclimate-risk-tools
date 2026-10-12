@@ -34,6 +34,7 @@ The first implementation separates tested scoring logic from QGIS-specific code:
 - `src/agroclimate_core/acmad_boundaries.py`: ACMAD WFS boundary request helpers, including Niger admin-0 defaults.
 - `scripts/score_agropastoral_risk_csv.py`: command-line CSV scoring harness.
 - `qgis/processing/agropastoral_drought_risk.py`: QGIS Processing wrapper designed to be wrapped later by a plugin UI.
+- `qgis/processing/fetch_acmad_boundary.py`: QGIS Processing tool for fetching Niger boundaries from ACMAD WFS.
 - `qgis/processing/provider.py`: QGIS Processing provider for plugin registration.
 - `qgis/plugin/`: minimal plugin scaffold for the future QGIS plugin.
 - `tests/`: standard-library unit tests for the core scoring logic.

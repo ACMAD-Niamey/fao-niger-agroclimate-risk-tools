@@ -14,6 +14,7 @@ Version 1 focuses on the scoring logic and a QGIS-ready wrapper. It does not yet
 | ACMAD boundary helpers | `src/agroclimate_core/acmad_boundaries.py` | Builds WFS boundary requests from country-info metadata, including Niger admin-0 defaults for `data_api_adminlevelzero` and `country_code = 181`. |
 | CSV scoring script | `scripts/score_agropastoral_risk_csv.py` | Provides a lightweight way to test scoring on tabular/zonal data. |
 | QGIS Processing wrapper | `qgis/processing/agropastoral_drought_risk.py` | Adds risk fields to a QGIS vector layer using the core scoring package. |
+| QGIS boundary fetcher | `qgis/processing/fetch_acmad_boundary.py` | Fetches Niger boundary layers from ACMAD WFS for users without a local zonal layer. |
 | QGIS Processing provider | `qgis/processing/provider.py` | Registers the risk algorithm in the QGIS Processing registry. |
 | QGIS plugin scaffold | `qgis/plugin/` | Minimal plugin shell for registering the Processing provider. |
 | QGIS plugin builder | `scripts/build_qgis_plugin.py` | Builds an installable plugin zip for ordinary QGIS users. |

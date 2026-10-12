@@ -16,6 +16,7 @@ The development symlink used by developers is not the installation method for or
 | Path | Purpose |
 | --- | --- |
 | `qgis/processing/agropastoral_drought_risk.py` | QGIS Processing algorithm for the first product. |
+| `qgis/processing/fetch_acmad_boundary.py` | QGIS Processing algorithm to fetch Niger boundary layers from ACMAD WFS. |
 | `qgis/processing/provider.py` | Processing provider that registers project algorithms in QGIS. |
 | `qgis/processing/bootstrap.py` | Adds the repository `src/` directory to the QGIS Python path. |
 | `qgis/processing/fields.py` | Shared output field definitions. |
@@ -70,13 +71,47 @@ risk_score
 risk_class
 ```
 
+The boundary fetch algorithm is:
+
+```text
+Fetch ACMAD Boundary Layer
+```
+
+It exposes the API/WFS boundary option in QGIS. Use it before the risk algorithm when the user does not want to provide a local zonal vector layer.
+
+Parameters:
+
+```text
+ACMAD WFS URL
+Boundary admin level
+Override WFS typeName/layer name (optional)
+Boundary output
+```
+
+For Niger admin level 0, it defaults to:
+
+```text
+typeName = data_api_adminlevelzero
+CQL_FILTER = country_code=181
+```
+
+For Niger admin level 1, it currently defaults to:
+
+```text
+typeName = data_api_adminlevelone
+CQL_FILTER = country_code=181
+```
+
+The admin level 1 layer name should still be validated against ACMAD WFS capabilities or country information API metadata.
+
 ## Expected Workflow
 
 1. Prepare or load a zonal input layer in QGIS.
-2. Ensure the layer contains CDI, optional fAPAR anomaly, optional soil moisture anomaly, and exposure fields.
-3. Run the Processing algorithm.
-4. Review the output risk classes.
-5. Apply QGIS styles and export maps/tables.
+2. If no local zonal layer is available, run `Fetch ACMAD Boundary Layer` to create one from ACMAD WFS.
+3. Ensure the zonal layer contains CDI, optional fAPAR anomaly, optional soil moisture anomaly, and exposure fields.
+4. Run the risk Processing algorithm.
+5. Review the output risk classes.
+6. Apply QGIS styles and export maps/tables.
 
 ## Quick Test Layer
 
@@ -118,7 +153,7 @@ The backend remains the Processing algorithm and the shared Python package under
 The zonal layer can be supplied in two ways:
 
 1. User selects an existing QGIS vector layer.
-2. User selects a country and admin level, and the plugin fetches the boundary from ACMAD WFS.
+2. User runs the `Fetch ACMAD Boundary Layer` algorithm to create a boundary layer from ACMAD WFS.
 
 The second path should use the ACMAD country information API to resolve metadata such as:
 

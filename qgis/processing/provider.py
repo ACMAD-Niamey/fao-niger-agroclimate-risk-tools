@@ -13,8 +13,10 @@ except ImportError:
 
 try:
     from .agropastoral_drought_risk import AgropastoralDroughtRiskAlgorithm
+    from .fetch_acmad_boundary import FetchAcmadBoundaryAlgorithm
 except ImportError:
     from agropastoral_drought_risk import AgropastoralDroughtRiskAlgorithm
+    from fetch_acmad_boundary import FetchAcmadBoundaryAlgorithm
 
 
 class FaoNigerAgroclimateProvider(QgsProcessingProvider):
@@ -42,4 +44,5 @@ class FaoNigerAgroclimateProvider(QgsProcessingProvider):
         return QIcon()
 
     def loadAlgorithms(self):
+        self.addAlgorithm(FetchAcmadBoundaryAlgorithm())
         self.addAlgorithm(AgropastoralDroughtRiskAlgorithm())

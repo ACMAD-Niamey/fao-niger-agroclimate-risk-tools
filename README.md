@@ -30,12 +30,28 @@ The intended outputs include:
 
 The first implementation separates tested scoring logic from QGIS-specific code:
 
-- `src/fao_niger_agroclimate/`: core Python package for risk scoring.
+- `src/agroclimate_core/`: core Python package for risk scoring.
+- `src/agroclimate_core/acmad_boundaries.py`: ACMAD WFS boundary request helpers.
 - `scripts/score_agropastoral_risk_csv.py`: command-line CSV scoring harness.
 - `qgis/processing/agropastoral_drought_risk.py`: QGIS Processing wrapper designed to be wrapped later by a plugin UI.
 - `qgis/processing/provider.py`: QGIS Processing provider for plugin registration.
 - `qgis/plugin/`: minimal plugin scaffold for the future QGIS plugin.
 - `tests/`: standard-library unit tests for the core scoring logic.
+- `sample_data/agropastoral_units.geojson`: small sample layer for testing the QGIS Processing algorithm.
+
+Build an installable QGIS plugin zip:
+
+```bash
+python3 scripts/build_qgis_plugin.py
+```
+
+This creates:
+
+```text
+dist/qgis/fao_niger_agroclimate.zip
+```
+
+QGIS users can install that zip from `Plugins > Manage and Install Plugins > Install from ZIP`.
 
 Run tests:
 

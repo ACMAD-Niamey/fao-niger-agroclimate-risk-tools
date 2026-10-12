@@ -2,7 +2,7 @@
 
 This script is intended to be added to the QGIS Processing Toolbox. It keeps
 the geospatial wrapper separate from the tested core scoring logic in
-``src/fao_niger_agroclimate`` so the same backend can later be wrapped by a
+``src/agroclimate_core`` so the same backend can later be wrapped by a
 QGIS plugin.
 """
 
@@ -27,7 +27,7 @@ except ImportError:
 
 ensure_src_path()
 
-from fao_niger_agroclimate.risk import (
+from agroclimate_core.risk import (
     calculate_exposure_score,
     calculate_hazard_score,
     calculate_risk_score,

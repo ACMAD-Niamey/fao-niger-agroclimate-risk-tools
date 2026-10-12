@@ -10,11 +10,13 @@ Version 1 focuses on the scoring logic and a QGIS-ready wrapper. It does not yet
 
 | Component | Path | Purpose |
 | --- | --- | --- |
-| Core scoring package | `src/fao_niger_agroclimate/` | Implements hazard, exposure, and risk scoring without QGIS dependencies. |
+| Core scoring package | `src/agroclimate_core/` | Implements hazard, exposure, and risk scoring without QGIS dependencies. |
+| ACMAD boundary helpers | `src/agroclimate_core/acmad_boundaries.py` | Builds WFS boundary requests from country-info metadata. |
 | CSV scoring script | `scripts/score_agropastoral_risk_csv.py` | Provides a lightweight way to test scoring on tabular/zonal data. |
 | QGIS Processing wrapper | `qgis/processing/agropastoral_drought_risk.py` | Adds risk fields to a QGIS vector layer using the core scoring package. |
 | QGIS Processing provider | `qgis/processing/provider.py` | Registers the risk algorithm in the QGIS Processing registry. |
 | QGIS plugin scaffold | `qgis/plugin/` | Minimal plugin shell for registering the Processing provider. |
+| QGIS plugin builder | `scripts/build_qgis_plugin.py` | Builds an installable plugin zip for ordinary QGIS users. |
 | Tests | `tests/` | Validates the scoring logic with Python's standard `unittest` framework. |
 
 ## Expected Input Fields
@@ -89,8 +91,10 @@ python3 -c "import ast, pathlib; files=[p for root in ['qgis','src','scripts','t
 ## Next Implementation Tasks
 
 1. Confirm exact ACMAD API response formats for CDI, fAPAR anomaly, and soil moisture anomaly.
-2. Add ACMAD API client and local cache.
-3. Add zonal preparation scripts to combine ACMAD indicator layers with admin, FAO intervention, cultivated, rangeland, and water-point exposure layers.
-4. Add QGIS styles for CDI, hazard score, exposure score, and risk class.
-5. Validate the first output against sample Niger data.
-6. Wrap the Processing algorithm in a plugin UI after the workflow stabilizes.
+2. Confirm exact ACMAD country-info API fields for WFS URL, boundary layer/type names, and country-code filters.
+3. Add ACMAD API client and local cache.
+4. Add WFS boundary fetch support for users who do not want to provide a local vector zonal layer.
+5. Add zonal preparation scripts to combine ACMAD indicator layers with admin, FAO intervention, cultivated, rangeland, and water-point exposure layers.
+6. Add QGIS styles for CDI, hazard score, exposure score, and risk class.
+7. Validate the first output against sample Niger data.
+8. Wrap the Processing algorithm in a plugin UI after the workflow stabilizes.

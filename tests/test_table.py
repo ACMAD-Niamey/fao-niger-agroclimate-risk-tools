@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fao_niger_agroclimate.table import score_csv
+from agroclimate_core.table import score_csv
 
 
 class TableScoringTests(unittest.TestCase):

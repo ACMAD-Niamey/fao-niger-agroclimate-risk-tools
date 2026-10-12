@@ -1,0 +1,87 @@
+{
+  "type": "FeatureCollection",
+  "name": "agropastoral_units",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "admin": "Sample Commune A",
+        "cdi": "warning",
+        "fapar_anomaly": "severe",
+        "soil_moisture_anomaly": "moderate",
+        "cultivated_exposure": 3,
+        "rangeland_exposure": 2,
+        "water_point_exposure": 1,
+        "vulnerability": null
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [2.0, 13.0],
+            [2.8, 13.0],
+            [2.8, 13.6],
+            [2.0, 13.6],
+            [2.0, 13.0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "admin": "Sample Commune B",
+        "cdi": "alert",
+        "fapar_anomaly": "severe",
+        "soil_moisture_anomaly": "severe",
+        "cultivated_exposure": 2,
+        "rangeland_exposure": 3,
+        "water_point_exposure": 2,
+        "vulnerability": 3
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [2.8, 13.0],
+            [3.6, 13.0],
+            [3.6, 13.6],
+            [2.8, 13.6],
+            [2.8, 13.0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "admin": "Sample Commune C",
+        "cdi": "watch",
+        "fapar_anomaly": "mild",
+        "soil_moisture_anomaly": "normal",
+        "cultivated_exposure": 1,
+        "rangeland_exposure": 1,
+        "water_point_exposure": 0,
+        "vulnerability": 1
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [2.0, 12.4],
+            [2.8, 12.4],
+            [2.8, 13.0],
+            [2.0, 13.0],
+            [2.0, 12.4]
+          ]
+        ]
+      }
+    }
+  ]
+}

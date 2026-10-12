@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 
-from fao_niger_agroclimate.table import score_csv
+from agroclimate_core.table import score_csv
 
 
 def main() -> None:

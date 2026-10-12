@@ -1,6 +1,6 @@
 import unittest
 
-from fao_niger_agroclimate.risk import (
+from agroclimate_core.risk import (
     RiskInputs,
     calculate_exposure_score,
     calculate_hazard_score,

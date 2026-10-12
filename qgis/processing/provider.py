@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from qgis.core import QgsProcessingProvider
 
 try:
@@ -28,7 +30,16 @@ class FaoNigerAgroclimateProvider(QgsProcessingProvider):
         return self.name()
 
     def icon(self):
-        return QIcon() if QIcon is not None else super().icon()
+        if QIcon is None:
+            return super().icon()
+
+        plugin_icon = Path(__file__).resolve().parents[1] / "plugin" / "icon.svg"
+        packaged_icon = Path(__file__).resolve().parents[1] / "icon.svg"
+        for icon_path in (plugin_icon, packaged_icon):
+            if icon_path.exists():
+                return QIcon(str(icon_path))
+
+        return QIcon()
 
     def loadAlgorithms(self):
         self.addAlgorithm(AgropastoralDroughtRiskAlgorithm())

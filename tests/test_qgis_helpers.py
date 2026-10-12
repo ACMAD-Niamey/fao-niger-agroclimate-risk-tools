@@ -25,7 +25,7 @@ class QgisHelperTests(unittest.TestCase):
     def test_fetch_boundary_algorithm_source_mentions_actual_niger_defaults(self):
         source = (REPO_ROOT / "qgis" / "processing" / "fetch_acmad_boundary.py").read_text()
         self.assertIn("Fetch ACMAD Boundary Layer", source)
-        self.assertIn("country_code=181", source)
+        self.assertIn("GeoServer workspace", source)
         self.assertIn("data_api_adminlevelzero", source)
         self.assertIn("DEFAULT_ACMAD_GEOSERVER_URL", source)
 
@@ -33,7 +33,8 @@ class QgisHelperTests(unittest.TestCase):
         source = (REPO_ROOT / "qgis" / "processing" / "agropastoral_drought_risk.py").read_text()
         self.assertIn("Zonal boundary source", source)
         self.assertIn("Fetch Niger boundary from ACMAD WFS", source)
-        self.assertIn("ACMAD WFS URL", source)
+        self.assertIn("ACMAD GeoServer/WFS URL", source)
+        self.assertIn("GeoServer workspace", source)
         self.assertIn("DEFAULT_ACMAD_GEOSERVER_URL", source)
 
     def test_bootstrap_adds_src_path(self):

@@ -7,6 +7,7 @@ from agroclimate_core.acmad_boundaries import (
     build_wfs_getfeature_url,
     niger_boundary_request,
     normalize_wfs_url,
+    qualify_type_name,
 )
 
 
@@ -32,7 +33,7 @@ class AcmadBoundaryTests(unittest.TestCase):
     def test_geoserver_base_url_is_normalized_to_ows(self):
         self.assertEqual(
             normalize_wfs_url("https://ada.acmad.org/geoserver"),
-            "https://ada.acmad.org/geoserver/ows",
+            "https://ada.acmad.org/geoserver/wfs",
         )
         url = build_wfs_getfeature_url(
             BoundaryRequest(
@@ -41,9 +42,19 @@ class AcmadBoundaryTests(unittest.TestCase):
                 country_code=181,
             )
         )
-        self.assertTrue(url.startswith("https://ada.acmad.org/geoserver/ows?"))
+        self.assertTrue(url.startswith("https://ada.acmad.org/geoserver/wfs?"))
         self.assertIn("typeName=data_api_adminlevelzero", url)
-        self.assertIn("CQL_FILTER=country_code%3D181", url)
+        self.assertIn("CQL_FILTER=country_code%3D%27181%27", url)
+
+    def test_type_name_can_be_qualified_with_workspace(self):
+        self.assertEqual(
+            qualify_type_name("data_api_adminlevelzero", "acmad"),
+            "acmad:data_api_adminlevelzero",
+        )
+        self.assertEqual(
+            qualify_type_name("acmad:data_api_adminlevelzero", "other"),
+            "acmad:data_api_adminlevelzero",
+        )
 
     def test_boundary_request_from_explicit_country_info(self):
         request = boundary_request_from_country_info(
@@ -70,7 +81,7 @@ class AcmadBoundaryTests(unittest.TestCase):
             admin_level=1,
         )
 
-        self.assertEqual(request.wfs_url, "https://example.org/geoserver/ows")
+        self.assertEqual(request.wfs_url, "https://example.org/geoserver/wfs")
         self.assertEqual(request.type_name, "acmad:ner_adm1")
 
     def test_niger_boundary_request_uses_actual_country_code_and_admin0_layer(self):
@@ -84,7 +95,18 @@ class AcmadBoundaryTests(unittest.TestCase):
         query = parse_qs(parsed.query)
         self.assertEqual(request.type_name, "data_api_adminlevelzero")
         self.assertEqual(query["typeName"], ["data_api_adminlevelzero"])
-        self.assertEqual(query["CQL_FILTER"], ["country_code=181"])
+        self.assertEqual(query["CQL_FILTER"], ["country_code='181'"])
+
+    def test_niger_boundary_request_can_use_workspace(self):
+        request = niger_boundary_request(
+            wfs_url="https://example.org/geoserver",
+            admin_level=0,
+            workspace="acmad",
+        )
+        url = build_wfs_getfeature_url(request)
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        self.assertEqual(query["typeName"], ["acmad:data_api_adminlevelzero"])
 
 
 if __name__ == "__main__":

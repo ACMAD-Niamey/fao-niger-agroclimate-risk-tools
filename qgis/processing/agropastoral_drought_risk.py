@@ -47,6 +47,7 @@ except ImportError:
 class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
     BOUNDARY_SOURCE = "BOUNDARY_SOURCE"
     WFS_URL = "WFS_URL"
+    WORKSPACE = "WORKSPACE"
     ADMIN_LEVEL = "ADMIN_LEVEL"
     TYPE_NAME = "TYPE_NAME"
     INPUT = "INPUT"
@@ -106,8 +107,16 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterString(
                 self.WFS_URL,
-                self.tr("ACMAD WFS URL, used when fetching boundary"),
+                self.tr("ACMAD GeoServer/WFS URL, used when fetching boundary"),
                 defaultValue=DEFAULT_ACMAD_GEOSERVER_URL,
+                optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterString(
+                self.WORKSPACE,
+                self.tr("GeoServer workspace (optional)"),
+                defaultValue="",
                 optional=True,
             )
         )
@@ -276,10 +285,12 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
 
         admin_level = self.parameterAsEnum(parameters, self.ADMIN_LEVEL, context)
         type_name = self.parameterAsString(parameters, self.TYPE_NAME, context).strip() or None
+        workspace = self.parameterAsString(parameters, self.WORKSPACE, context).strip() or None
         request = niger_boundary_request(
             wfs_url=wfs_url,
             admin_level=admin_level,
             type_name=type_name,
+            workspace=workspace,
         )
         getfeature_url = build_wfs_getfeature_url(request)
         feedback.pushInfo(f"Fetching zonal boundary from: {getfeature_url}")

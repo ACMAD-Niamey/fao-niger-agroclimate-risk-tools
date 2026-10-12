@@ -34,6 +34,7 @@ class BoundaryRequest:
     country_code: str | int
     admin_level: int = 0
     country_field: str = "country_code"
+    workspace: str | None = None
     output_format: str = DEFAULT_OUTPUT_FORMAT
     version: str = DEFAULT_WFS_VERSION
 
@@ -78,7 +79,7 @@ def extract_wfs_url(country_info: Mapping[str, Any]) -> str | None:
 
 
 def normalize_wfs_url(url: str) -> str:
-    """Normalize GeoServer base URLs to a WFS-capable OWS endpoint."""
+    """Normalize GeoServer base URLs to a WFS endpoint."""
 
     normalized = url.strip().rstrip("/")
     if not normalized:
@@ -88,8 +89,20 @@ def normalize_wfs_url(url: str) -> str:
     if normalized.endswith("/ows") or normalized.endswith("/wfs"):
         return normalized
     if normalized.endswith("/geoserver"):
-        return normalized + "/ows"
+        return normalized + "/wfs"
     return normalized
+
+
+def qualify_type_name(type_name: str, workspace: str | None = None) -> str:
+    """Apply an optional GeoServer workspace to a layer/type name."""
+
+    clean_type_name = type_name.strip()
+    clean_workspace = (workspace or "").strip()
+    if not clean_type_name:
+        raise ValueError("WFS typeName is required")
+    if ":" in clean_type_name or not clean_workspace:
+        return clean_type_name
+    return f"{clean_workspace}:{clean_type_name}"
 
 
 def boundary_type_name(country_info: Mapping[str, Any], admin_level: int) -> str:
@@ -137,8 +150,6 @@ def build_cql_filter(country_code: str | int, country_field: str = "country_code
     if not safe_field.replace("_", "").isalnum():
         raise ValueError(f"Invalid country field name: {country_field!r}")
     normalized_code = normalize_country_code(country_code)
-    if isinstance(normalized_code, int):
-        return f"{safe_field}={normalized_code}"
     return f"{safe_field}='{normalized_code}'"
 
 
@@ -152,7 +163,7 @@ def build_wfs_getfeature_url(request: BoundaryRequest) -> str:
             "service": "WFS",
             "version": request.version,
             "request": "GetFeature",
-            "typeName": request.type_name,
+            "typeName": qualify_type_name(request.type_name, request.workspace),
             "outputFormat": request.output_format,
             "CQL_FILTER": build_cql_filter(request.country_code, request.country_field),
         }
@@ -167,6 +178,7 @@ def boundary_request_from_country_info(
     country_code: str | int | None = None,
     wfs_url: str | None = None,
     country_field: str | None = None,
+    workspace: str | None = None,
 ) -> BoundaryRequest:
     """Create a WFS boundary request from ACMAD country-info metadata."""
 
@@ -181,6 +193,7 @@ def boundary_request_from_country_info(
         country_code=resolved_country_code,
         admin_level=int(admin_level),
         country_field=country_field or str(country_info.get("country_field", "country_code")),
+        workspace=workspace or country_info.get("workspace") or country_info.get("geoserver_workspace"),
     )
 
 
@@ -189,6 +202,7 @@ def niger_boundary_request(
     wfs_url: str,
     admin_level: int = 0,
     type_name: str | None = None,
+    workspace: str | None = None,
 ) -> BoundaryRequest:
     """Build a Niger WFS boundary request using ACMAD's numeric country code."""
 
@@ -199,4 +213,5 @@ def niger_boundary_request(
         country_info,
         admin_level=admin_level,
         wfs_url=wfs_url,
+        workspace=workspace,
     )

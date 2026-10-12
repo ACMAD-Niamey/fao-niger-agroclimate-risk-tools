@@ -27,6 +27,7 @@ from agroclimate_core.acmad_boundaries import DEFAULT_ACMAD_GEOSERVER_URL, build
 
 class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):
     WFS_URL = "WFS_URL"
+    WORKSPACE = "WORKSPACE"
     ADMIN_LEVEL = "ADMIN_LEVEL"
     TYPE_NAME = "TYPE_NAME"
     OUTPUT = "OUTPUT"
@@ -65,8 +66,16 @@ class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterString(
                 self.WFS_URL,
-                self.tr("ACMAD WFS URL"),
+                self.tr("ACMAD GeoServer/WFS URL"),
                 defaultValue=DEFAULT_ACMAD_GEOSERVER_URL,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterString(
+                self.WORKSPACE,
+                self.tr("GeoServer workspace (optional)"),
+                defaultValue="",
+                optional=True,
             )
         )
         self.addParameter(
@@ -94,11 +103,13 @@ class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):
 
         admin_level = self.parameterAsEnum(parameters, self.ADMIN_LEVEL, context)
         type_name = self.parameterAsString(parameters, self.TYPE_NAME, context).strip() or None
+        workspace = self.parameterAsString(parameters, self.WORKSPACE, context).strip() or None
 
         request = niger_boundary_request(
             wfs_url=wfs_url,
             admin_level=admin_level,
             type_name=type_name,
+            workspace=workspace,
         )
         getfeature_url = build_wfs_getfeature_url(request)
         feedback.pushInfo(f"Fetching boundary from: {getfeature_url}")

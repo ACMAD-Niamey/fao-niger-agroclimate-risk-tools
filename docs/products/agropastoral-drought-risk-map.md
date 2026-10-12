@@ -1,220 +1,116 @@
 # Agropastoral Drought Risk Map
 
+*Last reviewed: 2026-10-12. Status: prototype running on real data; thresholds awaiting review.*
+
 ## Purpose
 
-The Agropastoral Drought Risk Map is the first product selected for implementation. It identifies areas where ACMAD drought indicators overlap with agricultural and pastoral exposure layers in FAO Niger areas of interest.
+The map shows where drought hazard, as published by ACMAD, overlaps cropland and rangeland in Niger. It is a screening tool to decide where to look first, and where monitoring, advisories or anticipatory action discussions deserve attention.
 
-The product should answer:
+It answers:
 
-- where drought conditions are currently affecting or threatening agropastoral systems
-- which administrative units or FAO intervention zones have the highest combined risk
-- which exposed assets are affected, including cultivated areas, rangelands, and water points
-- where monitoring, advisory messaging, or anticipatory action discussions should be prioritized
+- where drought conditions threaten cultivated or grazed land
+- which regions have the largest share of their agropastoral land at high risk
+- how much cropland and rangeland sits in high-risk cells
 
-## Initial Scope
+It does not predict yield or livestock losses, and it does not replace ACMAD's own drought maps.
 
-The initial implementation will use ACMAD drought indicators only. It will not calculate NDVI anomaly or other custom GEE indicators in the first version.
-
-Initial ACMAD indicators:
-
-- Combined Drought Indicator
-- fAPAR anomaly
-- soil moisture anomaly
-
-Future versions may add GEE-derived indicators where they provide value beyond ACMAD products, such as NDVI anomaly, surface water change, heat stress, land cover refinement, or start-of-season metrics.
-
-## Primary Users
+## Primary users
 
 - FAO Niger technical staff
-- national meteorological and agricultural counterparts
-- food security and early warning partners
-- field teams supporting agricultural and pastoral advisory work
+- National meteorological and agricultural counterparts
+- Food security and early warning partners
+- Field teams supporting agricultural and pastoral advisory work
 
-## Input Datasets
+## Design rule
 
-### ACMAD Inputs
+Hazard is taken from ACMAD's published products and used as they are. The product adds exposure from land cover and the overlay. It does not compute new climate indicators; those are listed under [future extensions](#future-extensions).
 
-| Input | Role |
+## Inputs
+
+| Input | Source | Role |
+| --- | --- | --- |
+| Combined Drought Indicator (CDI), dekadal, 0.1 degree | ACMAD | **Current** hazard |
+| Combined monitoring and forecast hazard, seasonal, 1 degree | ACMAD | **Seasonal outlook** hazard |
+| Cropland (class 40) | ESA WorldCover 2021 | Cultivated exposure |
+| Shrubland and grassland (classes 20, 30) | ESA WorldCover 2021 | Rangeland exposure |
+| Administrative boundaries | OCHA Common Operational Dataset | Regional summaries |
+| Water points | None chosen yet | Constant default until a source exists |
+| Vulnerability | None chosen yet | Not used in the raster path |
+
+The sources, formats and what was verified are in [data sources](../data-sources.md).
+
+The CDI and the combined hazard are used as **two separate maps**. They differ in time (dekad against season) and grid (0.1 against 1 degree), so they are not added together.
+
+## Processing logic
+
+1. **Choose the period.** The requested date is mapped to the CDI dekad or the seasonal period and checked against what ACMAD has published. ACMAD publishes about a month behind, so the latest period within three dekads is used when the requested one is missing, and the run says so. `--strict-dates` refuses instead.
+2. **Hazard score, 0 to 3.**
+   - CDI codes: no drought or full recovery 0; watch or partial recovery 1; warning 2; alert 3 (full mapping in [implementation notes](../implementation.md#method)).
+   - Combined hazard classes 1 to 9: 1-2 score 0, 3-4 score 1, 5-6 score 2, 7-9 score 3. **A proposal; to be confirmed with ACMAD and FAO.**
+3. **Exposure score, 0 to 3.** For each cell, the share of land cover in the class, binned at 5%, 25% and 50%. **Placeholder cut-offs.**
+4. **Risk score and class** from the formulas below.
+5. **Mask.** Only cells with cropland or rangeland are scored. Elsewhere the map is blank ("not applicable"), because scoring bare ground low would make it look safe.
+
+All outputs share one grid, the 0.1 degree CDI grid over Niger. The 1 degree hazard is repeated onto it, so those cells look blocky; that is the true resolution of the data.
+
+## Formulas and classes
+
+```text
+Exposure = 0.45 cultivated + 0.35 rangeland + 0.20 water points
+Risk     = 0.60 Hazard + 0.40 Exposure
+```
+
+Where a vulnerability layer exists, the vector scoring path uses `0.50 Hazard + 0.30 Exposure + 0.20 Vulnerability`. The raster path does not yet.
+
+`Risk = Hazard x Exposure x Vulnerability` is the conceptual framing (IPCC AR6), not the arithmetic. A weighted sum is used because it is transparent and a zero in one factor does not erase the others.
+
+| Class | Score |
 | --- | --- |
-| Combined Drought Indicator | Primary drought hazard classification. |
-| fAPAR anomaly | Vegetation stress evidence, especially relevant for crop and rangeland conditions. |
-| Soil moisture anomaly | Agricultural moisture stress evidence. |
-
-Optional ACMAD inputs, if available:
-
-- drought hazard forecast
-- rainfall anomaly
-- seasonal forecast
-
-### Local and Partner Inputs
-
-| Input | Role |
-| --- | --- |
-| Niger administrative boundaries | Reporting and aggregation. |
-| FAO intervention zones | Operational prioritization. |
-| Cultivated areas | Crop exposure. |
-| Rangelands or pastoral zones | Pastoral exposure. |
-| Water points | Water-access exposure and pastoral relevance. |
-| Vulnerability or food security layer | Optional risk modifier. |
-| Livelihood zones | Optional interpretation layer. |
-
-## Processing Logic
-
-The product uses a transparent risk framing:
-
-```text
-Risk = Hazard x Exposure x Vulnerability
-```
-
-For version 1, hazard is derived from ACMAD indicators, exposure is derived from local agropastoral layers, and vulnerability is optional.
-
-## Hazard Score
-
-The Combined Drought Indicator is the primary hazard layer.
-
-Suggested CDI scoring:
-
-```text
-0 = no drought
-1 = watch
-2 = warning
-3 = alert
-```
-
-fAPAR anomaly and soil moisture anomaly should be used as supporting evidence. They can either be retained as separate diagnostic layers or included in a composite hazard score after validation.
-
-Suggested first composite hazard formula:
-
-```text
-Hazard Score = 0.60 CDI + 0.20 fAPAR anomaly class + 0.20 soil moisture anomaly class
-```
-
-If fAPAR or soil moisture anomaly classifications are not directly comparable with CDI classes, the first version should keep them as diagnostic layers and use CDI alone for the hazard score:
-
-```text
-Hazard Score = CDI class score
-```
-
-## Exposure Score
-
-Exposure combines cultivated areas, rangelands, and water points.
-
-Suggested formula:
-
-```text
-Exposure Score = 0.45 cultivated exposure + 0.35 rangeland exposure + 0.20 water-point exposure
-```
-
-Exposure classes:
-
-```text
-0 = no relevant exposure
-1 = low exposure
-2 = moderate exposure
-3 = high exposure
-```
-
-## Risk Formula
-
-If a vulnerability layer is available:
-
-```text
-Risk Score = 0.50H + 0.30E + 0.20V
-```
-
-Where:
-
-- H = hazard score
-- E = exposure score
-- V = vulnerability score
-
-If vulnerability is not available:
-
-```text
-Risk Score = 0.60H + 0.40E
-```
-
-Risk classes:
-
-```text
-0.0-0.9 = low risk
-1.0-1.6 = moderate risk
-1.7-2.3 = high risk
-2.4-3.0 = very high risk
-```
+| Low | below 1.0 |
+| Moderate | 1.0 to below 1.7 |
+| High | 1.7 to below 2.4 |
+| Very high | 2.4 and above |
 
 ## Outputs
 
-The QGIS Processing script should generate:
+| Output | State |
+| --- | --- |
+| Risk score and risk class rasters, hazard and exposure stack, QGIS styles | Available |
+| `run_metadata.json` (requested date, period used, fallback, inputs) | Available |
+| Summary table by admin region (class shares, mean score, worst class, exposed hectares), CSV and GeoJSON | Available |
+| Print-ready layout, FAO intervention-zone summary, water points in high-risk zones | Planned |
 
-- agropastoral drought risk layer
-- CDI layer styled by drought class
-- fAPAR anomaly diagnostic layer
-- soil moisture anomaly diagnostic layer
-- administrative risk summary table
-- FAO intervention-zone summary table, where relevant
-- water points in high-risk zones table
-- print-ready map export
-- metadata file documenting inputs, dates, formulas, and thresholds
+## Update frequency
 
-## Implementation Location
+The CDI updates every dekad (about every ten days) with a lag of about a month. The seasonal hazard updates once per season. Exposure is static and is rebuilt only if the land cover class choice, thresholds or grid change.
 
-The first implementation should run as a QGIS Processing script.
+## Quality control
 
-The script should be written so it can later be wrapped by a QGIS plugin. The plugin should not duplicate processing logic; it should provide a simple user interface over the same backend algorithm.
+Before using a map, check:
 
-Initial QGIS Processing parameters:
+- the period in `run_metadata.json` matches what you intended, and `fallback` is understood
+- hazard and exposure share the grid (the runner enforces this)
+- risk scores fall within 0 to 3 (the runner enforces this)
+- regional totals look sensible against ACMAD's own map for the same period
+- the style reads clearly in QGIS
 
-```text
-reporting_period
-admin_boundary_layer
-fao_intervention_layer
-cultivated_area_layer
-rangeland_layer
-water_points_layer
-vulnerability_layer, optional
-acmad_cdi_source
-acmad_fapar_source
-acmad_soil_moisture_source
-use_acmad_api
-use_cached_data
-output_folder
-```
+## Known limitations
 
-## Plugin Wrapper Direction
+- Cut-offs, class mapping and weights are placeholders until FAO and ACMAD review them.
+- Water-point exposure is a constant, and vulnerability is not applied to the raster.
+- The seasonal hazard is 1 degree; the CDI is about 11 km. Units smaller than a few cells, such as Niamey, are poorly represented.
+- Land cover is a 2021 snapshot. Sparse vegetation (class 60), grazed in parts of the north, is not counted as rangeland.
+- The score is a screening tool and should be validated against local knowledge and past seasons.
 
-The future plugin should expose a simple interface:
+## Future extensions
 
-```text
-Product: Agropastoral Drought Risk Map
-Period: dekad/month/season
-Hazard source: fetch from ACMAD API or use cached files
-Exposure layers: cultivated areas, rangelands, water points
-Reporting geography: admin unit or FAO intervention zone
-Generate outputs
-Export package
-```
+These add information beyond what ACMAD publishes, so they stay proposals under the design rule:
 
-## Quality Control
+- fAPAR and soil moisture anomaly as context layers (not added into hazard, because the CDI already combines them)
+- NDVI anomaly, surface water change, heat stress, start of season
+- A vulnerability layer in the raster path
+- The combined drought forecast (`combined_drought_forecast_era5`) as an input to advisories and triggers
 
-Before use, each output should be checked for:
+## Handover notes
 
-- correct reporting period
-- successful ACMAD product download or cache selection
-- correct spatial alignment between hazard and exposure layers
-- valid risk-score range
-- complete administrative summaries
-- readable map symbology
-- metadata completeness
-
-## Known Limitations
-
-- The first version does not calculate NDVI anomaly or other GEE-derived indicators.
-- The risk score is a screening tool and should be validated with local experts.
-- Vulnerability data may be incomplete or unavailable.
-- ACMAD indicator classes and anomaly classes may require harmonization before they are combined into a composite hazard score.
-
-## Handover Notes
-
-The first operational version should prioritize transparency and repeatability. CDI should remain the main hazard indicator until fAPAR anomaly and soil moisture anomaly scoring is validated with ACMAD and FAO Niger counterparts.
-
+Keep the method transparent and repeatable. Anyone should be able to rerun a map from `run_metadata.json` plus the command. Review thresholds and class mapping with counterparts before the product is used for decisions.

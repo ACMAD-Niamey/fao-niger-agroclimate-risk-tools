@@ -5,8 +5,10 @@ This folder contains the technical and product documentation for the FAO Niger a
 ## Core Documents
 
 - [Technical note](technical-note.md): the main design document describing the proposed products, data sources, formulas, implementation architecture, and phased development plan.
-- [Project plan and current status](project-plan-status.md): implementation plan, completed work, current limitations, and next steps.
-- [Implementation notes](implementation.md): current code structure, expected fields, formulas, test command, and next implementation tasks.
+- [Project plan and current status](project-plan-status.md): the four deliverables, how far each has come, and next steps.
+- [Data sources](data-sources.md): every external input, what it contains and what was verified.
+- [Decision log](decisions.md): the choices behind the tools, and which still need confirmation.
+- [Implementation notes](implementation.md): modules, commands, outputs, method and tests.
 - [QGIS integration](qgis-integration.md): QGIS Processing structure and plugin-ready design notes.
 - [Agropastoral Drought Risk Map](products/agropastoral-drought-risk-map.md): the first product selected for implementation.
 
@@ -29,10 +31,11 @@ Each product document should define:
 
 ## Planned Documentation
 
-- ACMAD API integration note
+The ACMAD API notes and the data inventory now live in [data sources](data-sources.md).
+
 - Future Google Earth Engine indicator note
 - QGIS Processing script design
 - QGIS plugin wrapper design
-- Data inventory
+- Water-point and vulnerability source note (no source chosen yet)
 - Threshold validation note
 - Advisory message library

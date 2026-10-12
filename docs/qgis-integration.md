@@ -11,6 +11,10 @@ The plugin should not duplicate the risk logic. It should provide a user-friendl
 
 The development symlink used by developers is not the installation method for ordinary QGIS users. End users should install a packaged plugin zip.
 
+## Current scope
+
+The Processing algorithms here score a **vector** layer of zonal units. They do not yet run the raster workflow (`scripts/build_agropastoral_risk_raster.py`), which is the main product path. Wrapping the raster workflow is the next plugin step; see the [project plan](project-plan-status.md).
+
 ## Current QGIS Components
 
 | Path | Purpose |
@@ -20,7 +24,8 @@ The development symlink used by developers is not the installation method for or
 | `qgis/processing/provider.py` | Processing provider that registers project algorithms in QGIS. |
 | `qgis/processing/bootstrap.py` | Adds the repository `src/` directory to the QGIS Python path. |
 | `qgis/processing/fields.py` | Shared output field definitions. |
-| `qgis/plugin/` | Minimal plugin scaffold for registering the Processing provider. |
+| `qgis/plugin/` | Minimal plugin scaffold for registering the Processing provider and four style actions (risk class, risk score, CDI hazard, combined hazard). |
+| `qgis/styles/` | Map styles: a sequential yellow-orange-red ramp, darker with severity, with labels that state the real class breaks. |
 | `scripts/build_qgis_plugin.py` | Builds an installable QGIS plugin zip. |
 
 ## Installing as a QGIS User
@@ -151,14 +156,7 @@ typeName = data_api_adminlevelzero
 CQL_FILTER = country_code=181
 ```
 
-For Niger admin level 1, it currently defaults to:
-
-```text
-typeName = data_api_adminlevelone
-CQL_FILTER = country_code=181
-```
-
-The admin level 1 layer name should still be validated against ACMAD WFS capabilities or country information API metadata.
+**Admin level 1 does not work.** The code defaults to `data_api_adminlevelone`, but ACMAD's GeoServer has no such layer (checked 2026-10-12: only `data_api_adminlevelzero` and `data_api_adminlevelzeroregion` exist), so the request returns "Feature type unknown". Use an admin level 1 file from another source instead; the OCHA boundaries are recommended (see [data sources](data-sources.md)).
 
 ## Expected Workflow
 
@@ -239,7 +237,7 @@ Region: Western Africa
 region_code: 6
 ```
 
-Admin level 1 should follow the same pattern once its exact layer name is confirmed. The code currently defaults to `data_api_adminlevelone`, but that should be validated against the ACMAD WFS capabilities or country information API response.
+Admin level 1 cannot follow this pattern, because ACMAD does not serve it; see above.
 
 Planned QGIS boundary parameters:
 

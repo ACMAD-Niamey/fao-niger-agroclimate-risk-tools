@@ -6,7 +6,7 @@ This folder documents each operational product created for the FAO Niger agrocli
 
 | Product | Status | Description |
 | --- | --- | --- |
-| [Agropastoral Drought Risk Map](agropastoral-drought-risk-map.md) | First implementation | Combines ACMAD CDI, fAPAR anomaly, soil moisture anomaly, agricultural/pastoral exposure, and optional vulnerability layers. |
+| [Agropastoral Drought Risk Map](agropastoral-drought-risk-map.md) | Prototype working | Combines ACMAD hazard (CDI or the seasonal combined hazard) with cropland and rangeland exposure from land cover. Thresholds awaiting review. |
 | Cropping-Zone Drought Risk Map | Proposed | Identifies cultivated areas where drought or rainfall deficits may affect crop development. |
 | Pastoral and Rangeland Stress Map | Proposed | Tracks overlap between drought, vegetation stress, water access, and pastoral exposure. |
 | Seasonal Agricultural Advisory Product | Proposed | Converts forecast and risk outputs into advisory text, maps, and crop-calendar guidance. |

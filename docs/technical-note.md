@@ -1,5 +1,7 @@
 # Technical Note: Agroclimatic Risk Mapping and Advisory Product Support for FAO Niger
 
+> **How to read this note.** It describes the full target design across seven products. Only Product 1, the Agropastoral Drought Risk Map, has a working prototype. For what exists and what is decided, read the [project plan and status](project-plan-status.md), the [decision log](decisions.md) and the [data sources](data-sources.md). Where this note and those pages differ, they are current. Last reviewed 2026-10-12.
+
 ## 1. Purpose
 
 This technical note defines the proposed product architecture, data inputs, analytical methods, implementation direction, and handover requirements for supporting FAO Niger in the use of spatial climate-risk information for agropastoral planning, agricultural advisory products, and anticipatory action.
@@ -29,6 +31,8 @@ The workflow should therefore avoid duplicating ACMAD's existing drought product
 For the initial implementation, the drought evidence stack should come from ACMAD products rather than custom GEE computation. The first product will use CDI, fAPAR anomaly, and soil moisture anomaly from ACMAD, combined with local agricultural, pastoral, water-point, administrative, and vulnerability layers. GEE will remain a future extension for indicators not already available through ACMAD, such as NDVI anomaly, surface water dynamics, land cover refinements, heat stress, or custom start-of-season indicators. GEE is appropriate for that future role because it provides cloud-based access to large geospatial datasets and scalable processing for environmental monitoring applications, including drought, food security, and climate monitoring. See Gorelick et al. (2017): https://doi.org/10.1016/j.rse.2017.06.031.
 
 QGIS will remain the main operational environment for local review, map production, style management, layout templates, and staff handover.
+
+**Design principle: consume, don't compute.** The tools use ACMAD's published products (the CDI, the combined monitoring and forecast hazard, the seasonal forecast) as they are, and add the overlay with land cover and the summaries. They do not derive new climate indicators. Anything that would need new computation, such as NDVI anomaly, season start or heat stress, is a future proposal unless ACMAD publishes it. This keeps the products transparent and avoids repeating ACMAD's validated work.
 
 ## 3. Product Architecture
 
@@ -73,19 +77,9 @@ Risk = Hazard x Exposure x Vulnerability
 
 This framing is consistent with IPCC risk terminology, where risk emerges from interactions between hazard, exposure, and vulnerability. See IPCC AR6 framing: https://www.ipcc.ch/report/ar6/wg1/chapter/chapter-1/.
 
-For implementation, the first version should use CDI as the primary hazard class, with fAPAR anomaly and soil moisture anomaly retained as diagnostic evidence or added to a composite hazard score after validation.
+For implementation, hazard comes from two ACMAD products kept as separate maps: the current CDI (dekadal) and the seasonal combined monitoring and forecast hazard. Each is converted to a 0-3 hazard score (see the [product specification](products/agropastoral-drought-risk-map.md)).
 
-Initial hazard option:
-
-```text
-Hazard Score = CDI class score
-```
-
-Composite hazard option, after validation:
-
-```text
-Hazard Score = 0.60 CDI + 0.20 fAPAR anomaly class + 0.20 soil moisture anomaly class
-```
+fAPAR anomaly and soil moisture anomaly are **not** added into the hazard score. The CDI already combines precipitation, soil moisture and fAPAR (Sepulcre-Canto et al., 2012), so a composite would count them twice. They remain possible as context layers.
 
 The first risk formula should use a transparent weighted score:
 
@@ -128,13 +122,13 @@ Vulnerability score:
 3 = very high vulnerability
 ```
 
-Risk class:
+Risk class (the score is continuous, so the breaks are stated as thresholds):
 
 ```text
-0.0-0.9 = low risk
-1.0-1.6 = moderate risk
-1.7-2.3 = high risk
-2.4-3.0 = very high risk
+below 1.0       = low risk
+1.0 to below 1.7 = moderate risk
+1.7 to below 2.4 = high risk
+2.4 and above    = very high risk
 ```
 
 ### Outputs
@@ -423,6 +417,8 @@ Access method:
 
 GEE should not be required for the initial implementation. It should be treated as a future extension for complementary indicators and custom processing where ACMAD products do not already meet the product requirement.
 
+*Update: the prototype takes land cover directly from the public ESA WorldCover files on AWS, with no GEE account. GEE remains an option for other layers.*
+
 Potential GEE-derived indicators:
 
 - NDVI anomaly
@@ -454,6 +450,8 @@ Required local layers:
 The implementation should begin with QGIS Processing scripts, not a full plugin. The scripts should be written with clean inputs and outputs so that they can later be wrapped by a QGIS plugin user interface.
 
 ### Proposed Components
+
+*This is the proposed layout. The implemented layout is `src/agroclimate_core/` for logic and `scripts/` for entry points; see [implementation notes](implementation.md).*
 
 ```text
 qgis_project/

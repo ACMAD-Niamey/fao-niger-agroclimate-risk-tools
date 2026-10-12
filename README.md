@@ -25,6 +25,27 @@ The intended outputs include:
 - [Product documentation](docs/products/README.md): index for each product specification as it is developed.
 - [Agropastoral Drought Risk Map](docs/products/agropastoral-drought-risk-map.md): first implementation product specification.
 
+## Implementation
+
+The first implementation separates tested scoring logic from QGIS-specific code:
+
+- `src/fao_niger_agroclimate/`: core Python package for risk scoring.
+- `scripts/score_agropastoral_risk_csv.py`: command-line CSV scoring harness.
+- `qgis/processing/agropastoral_drought_risk.py`: QGIS Processing wrapper designed to be wrapped later by a plugin UI.
+- `tests/`: standard-library unit tests for the core scoring logic.
+
+Run tests:
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+```
+
+Score a CSV table:
+
+```bash
+PYTHONPATH=src python3 scripts/score_agropastoral_risk_csv.py input.csv output.csv
+```
+
 ## Implementation Direction
 
 The proposed implementation path is:
@@ -58,4 +79,4 @@ Future extensions may add GEE-derived indicators such as NDVI anomaly, surface w
 
 Current status: documentation and product design.
 
-Implementation scripts, QGIS templates, styles, and plugin components will be added after the product specifications are reviewed and accepted.
+The first risk-scoring implementation has been added. ACMAD API fetch logic, QGIS templates, styles, zonal layer preparation, and plugin components will be added after the first scoring workflow is validated.

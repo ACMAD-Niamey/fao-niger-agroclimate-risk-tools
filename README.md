@@ -2,11 +2,11 @@
 
 Documentation and implementation notes for agroclimatic risk mapping, agricultural advisory products, and anticipatory action support for FAO Niger.
 
-The repository is documentation-first. It defines the products, data inputs, formulas, workflows, and implementation direction before scripts or QGIS plugin components are developed.
+The repository is product-first. It defines the products, data inputs, formulas, workflows, and implementation direction, then implements the workflows as testable scripts before wrapping them in QGIS plugin components.
 
 ## Purpose
 
-This work supports the development of operational products that combine ACMAD drought and forecast information, QGIS workflows, land use and land cover data, and socioeconomic exposure layers. Google Earth Engine indicators are treated as future extensions, not dependencies for the initial implementation.
+This work supports the development of operational products that combine ACMAD drought and forecast information, QGIS workflows, land use and land cover data, and socioeconomic exposure layers. The first raster workflow downloads ACMAD CDI and can consume exposure rasters prepared from Google Earth Engine or other local sources.
 
 The intended outputs include:
 
@@ -32,6 +32,9 @@ The first implementation separates tested scoring logic from QGIS-specific code:
 
 - `src/agroclimate_core/`: core Python package for risk scoring.
 - `src/agroclimate_core/acmad_boundaries.py`: ACMAD WFS boundary request helpers, including Niger admin-0 defaults.
+- `src/agroclimate_core/acmad_download.py`: ACMAD raster download helper for the `download_data` API endpoint.
+- `src/agroclimate_core/raster_pipeline.py`: GDAL/NumPy raster pipeline for clipping CDI, aligning exposure rasters, and writing risk GeoTIFFs.
+- `scripts/build_agropastoral_risk_raster.py`: end-to-end raster runner that produces QGIS-ready outputs.
 - `scripts/score_agropastoral_risk_csv.py`: command-line CSV scoring harness.
 - `qgis/processing/agropastoral_drought_risk.py`: QGIS Processing wrapper designed to be wrapped later by a plugin UI.
 - `qgis/processing/fetch_acmad_boundary.py`: QGIS Processing tool for fetching Niger boundaries from ACMAD WFS.
@@ -60,31 +63,45 @@ Run tests:
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
+The raster runner requires GDAL Python bindings through `osgeo.gdal`. A QGIS Python environment usually provides this; a standalone Python environment may need GDAL installed separately.
+
 Score a CSV table:
 
 ```bash
 PYTHONPATH=src python3 scripts/score_agropastoral_risk_csv.py input.csv output.csv
 ```
 
+Build a first risk raster output for QGIS:
+
+```bash
+python3 scripts/build_agropastoral_risk_raster.py \
+  --year 2026 \
+  --month 5 \
+  --dekad 21 \
+  --output-dir outputs/niger-risk-2026-05-21
+```
+
+The script downloads ACMAD CDI unless `--cdi-raster` is supplied, fetches the Niger boundary from ACMAD WFS, clips CDI to Niger, combines it with exposure scores, and writes GeoTIFF outputs.
+ACMAD CDI detailed codes are remapped to the `0-3` hazard scale by default.
+
 ## Implementation Direction
 
 The proposed implementation path is:
 
 1. Define and validate the products.
-2. Confirm ACMAD API products and response formats.
-3. Build the first product using ACMAD CDI, fAPAR anomaly, soil moisture anomaly, and local exposure layers.
-4. Build QGIS Processing scripts for each product.
-5. Keep scripts plugin-ready through clean parameters and outputs.
-6. Add GEE-derived indicators later only where ACMAD products do not cover the required indicator.
-7. Wrap stable scripts in a simple QGIS plugin interface when the workflow is mature.
+2. Test ACMAD CDI downloads and local GeoTIFF outputs.
+3. Build the first product using ACMAD CDI and exposure layers prepared from GEE or local datasets.
+4. Keep scripts plugin-ready through clean parameters and outputs.
+5. Add QGIS styles for CDI, exposure, risk score, and risk class.
+6. Wrap stable scripts in a simple QGIS plugin interface when the workflow is mature.
 
 ## Core Architecture
 
 ```text
-ACMAD API + local exposure layers
+ACMAD CDI raster + GEE/local exposure layers
         |
         v
-QGIS Processing scripts
+End-to-end Python/GDAL scripts
         |
         v
 Risk maps + advisory products + trigger matrices
@@ -97,6 +114,6 @@ Future extensions may add GEE-derived indicators such as NDVI anomaly, surface w
 
 ## Repository Status
 
-Current status: documentation and product design.
+Current status: documentation, scoring logic, QGIS plugin scaffold, ACMAD boundary fetch, and first end-to-end raster runner.
 
-The first risk-scoring implementation has been added. ACMAD API fetch logic, QGIS templates, styles, zonal layer preparation, and plugin components will be added after the first scoring workflow is validated.
+The next implementation step is exposure preparation: cultivated areas, rangelands, water points, and optional vulnerability rasters on a 0-3 score scale.

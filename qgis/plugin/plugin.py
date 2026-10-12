@@ -41,6 +41,10 @@ class FaoNigerAgroclimatePlugin:
         self.provider = None
 
     def initGui(self):
+        existing_provider = QgsApplication.processingRegistry().providerById("fao_niger_agroclimate")
+        if existing_provider is not None:
+            QgsApplication.processingRegistry().removeProvider(existing_provider)
+
         self.provider = FaoNigerAgroclimateProvider()
         QgsApplication.processingRegistry().addProvider(self.provider)
 

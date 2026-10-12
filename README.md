@@ -31,7 +31,7 @@ The intended outputs include:
 The first implementation separates tested scoring logic from QGIS-specific code:
 
 - `src/agroclimate_core/`: core Python package for risk scoring.
-- `src/agroclimate_core/acmad_boundaries.py`: ACMAD WFS boundary request helpers.
+- `src/agroclimate_core/acmad_boundaries.py`: ACMAD WFS boundary request helpers, including Niger admin-0 defaults.
 - `scripts/score_agropastoral_risk_csv.py`: command-line CSV scoring harness.
 - `qgis/processing/agropastoral_drought_risk.py`: QGIS Processing wrapper designed to be wrapped later by a plugin UI.
 - `qgis/processing/provider.py`: QGIS Processing provider for plugin registration.

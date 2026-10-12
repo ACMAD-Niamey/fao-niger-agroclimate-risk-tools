@@ -9,6 +9,19 @@ from urllib.parse import urlencode
 
 DEFAULT_WFS_VERSION = "1.0.0"
 DEFAULT_OUTPUT_FORMAT = "application/json"
+DEFAULT_ACMAD_ADMIN_LAYERS = {
+    0: "data_api_adminlevelzero",
+    1: "data_api_adminlevelone",
+}
+DEFAULT_NIGER_COUNTRY_INFO = {
+    "country_name": "Niger",
+    "country_code": 181,
+    "region_name": "Western Africa",
+    "region_code": 6,
+    "admin0_typename": DEFAULT_ACMAD_ADMIN_LAYERS[0],
+    "admin1_typename": DEFAULT_ACMAD_ADMIN_LAYERS[1],
+    "country_field": "country_code",
+}
 
 
 @dataclass(frozen=True)
@@ -17,29 +30,34 @@ class BoundaryRequest:
 
     wfs_url: str
     type_name: str
-    country_code: str
+    country_code: str | int
     admin_level: int = 0
     country_field: str = "country_code"
     output_format: str = DEFAULT_OUTPUT_FORMAT
     version: str = DEFAULT_WFS_VERSION
 
 
-def normalize_country_code(country_code: str) -> str:
+def normalize_country_code(country_code: str | int) -> str | int:
     """Normalize country codes used in API and WFS filters."""
 
-    code = country_code.strip().upper()
+    if isinstance(country_code, int):
+        return country_code
+
+    code = str(country_code).strip().upper()
     if not code:
         raise ValueError("country_code is required")
+    if code.isdigit():
+        return int(code)
     return code
 
 
-def extract_country_code(country_info: Mapping[str, Any]) -> str:
+def extract_country_code(country_info: Mapping[str, Any]) -> str | int:
     """Extract a country code from common country-info API field names."""
 
-    for key in ("iso3", "iso_a3", "adm0_a3", "country_code", "code"):
+    for key in ("country_code", "code", "iso3", "iso_a3", "adm0_a3"):
         value = country_info.get(key)
-        if value:
-            return normalize_country_code(str(value))
+        if value is not None and value != "":
+            return normalize_country_code(value)
     raise ValueError("Country information did not include a recognizable country code")
 
 
@@ -85,21 +103,27 @@ def boundary_type_name(country_info: Mapping[str, Any], admin_level: int) -> str
     template = country_info.get("boundary_layer_template")
     if template:
         return str(template).format(
-            country_code=extract_country_code(country_info).lower(),
+            country_code=str(extract_country_code(country_info)).lower(),
             country_code_upper=extract_country_code(country_info),
             admin_level=admin_level,
         )
 
+    if admin_level in DEFAULT_ACMAD_ADMIN_LAYERS:
+        return DEFAULT_ACMAD_ADMIN_LAYERS[admin_level]
+
     raise ValueError(f"Country information did not include a boundary layer for admin level {admin_level}")
 
 
-def build_cql_filter(country_code: str, country_field: str = "country_code") -> str:
+def build_cql_filter(country_code: str | int, country_field: str = "country_code") -> str:
     """Build a simple CQL filter for a country code."""
 
     safe_field = country_field.strip()
     if not safe_field.replace("_", "").isalnum():
         raise ValueError(f"Invalid country field name: {country_field!r}")
-    return f"{safe_field}='{normalize_country_code(country_code)}'"
+    normalized_code = normalize_country_code(country_code)
+    if isinstance(normalized_code, int):
+        return f"{safe_field}={normalized_code}"
+    return f"{safe_field}='{normalized_code}'"
 
 
 def build_wfs_getfeature_url(request: BoundaryRequest) -> str:
@@ -123,7 +147,7 @@ def boundary_request_from_country_info(
     country_info: Mapping[str, Any],
     *,
     admin_level: int = 0,
-    country_code: str | None = None,
+    country_code: str | int | None = None,
     wfs_url: str | None = None,
     country_field: str | None = None,
 ) -> BoundaryRequest:
@@ -140,4 +164,22 @@ def boundary_request_from_country_info(
         country_code=resolved_country_code,
         admin_level=int(admin_level),
         country_field=country_field or str(country_info.get("country_field", "country_code")),
+    )
+
+
+def niger_boundary_request(
+    *,
+    wfs_url: str,
+    admin_level: int = 0,
+    type_name: str | None = None,
+) -> BoundaryRequest:
+    """Build a Niger WFS boundary request using ACMAD's numeric country code."""
+
+    country_info = dict(DEFAULT_NIGER_COUNTRY_INFO)
+    if type_name:
+        country_info[f"admin{int(admin_level)}_typename"] = type_name
+    return boundary_request_from_country_info(
+        country_info,
+        admin_level=admin_level,
+        wfs_url=wfs_url,
     )

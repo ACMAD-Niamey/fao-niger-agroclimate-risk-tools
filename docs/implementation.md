@@ -11,7 +11,7 @@ Version 1 focuses on the scoring logic and a QGIS-ready wrapper. It does not yet
 | Component | Path | Purpose |
 | --- | --- | --- |
 | Core scoring package | `src/agroclimate_core/` | Implements hazard, exposure, and risk scoring without QGIS dependencies. |
-| ACMAD boundary helpers | `src/agroclimate_core/acmad_boundaries.py` | Builds WFS boundary requests from country-info metadata. |
+| ACMAD boundary helpers | `src/agroclimate_core/acmad_boundaries.py` | Builds WFS boundary requests from country-info metadata, including Niger admin-0 defaults for `data_api_adminlevelzero` and `country_code = 181`. |
 | CSV scoring script | `scripts/score_agropastoral_risk_csv.py` | Provides a lightweight way to test scoring on tabular/zonal data. |
 | QGIS Processing wrapper | `qgis/processing/agropastoral_drought_risk.py` | Adds risk fields to a QGIS vector layer using the core scoring package. |
 | QGIS Processing provider | `qgis/processing/provider.py` | Registers the risk algorithm in the QGIS Processing registry. |

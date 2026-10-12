@@ -122,7 +122,7 @@ The zonal layer can be supplied in two ways:
 
 The second path should use the ACMAD country information API to resolve metadata such as:
 
-- country code, for example `NER`
+- country code, for example Niger uses `country_code = 181`
 - WFS URL or GeoServer base URL
 - boundary layer/type name for admin level 0 or 1
 - country-code field used by the WFS layer
@@ -130,10 +130,23 @@ The second path should use the ACMAD country information API to resolve metadata
 The plugin can then build a WFS GetFeature URL such as:
 
 ```text
-{wfs_url}?service=WFS&version=1.0.0&request=GetFeature&typeName={admin_layer}&outputFormat=application/json&CQL_FILTER={country_field}='NER'
+{wfs_url}?service=WFS&version=1.0.0&request=GetFeature&typeName={admin_layer}&outputFormat=application/json&CQL_FILTER=country_code=181
 ```
 
 This should return GeoJSON that QGIS can load as the zonal boundary layer. The implementation should keep this boundary-fetch step separate from the risk scoring algorithm so that later products can reuse the same boundary source.
+
+From the current ACMAD country boundary layer, admin level 0 uses:
+
+```text
+Layer: data_api_adminlevelzero
+Country field: country_code
+Niger country_code: 181
+Niger country_name: Niger
+Region: Western Africa
+region_code: 6
+```
+
+Admin level 1 should follow the same pattern once its exact layer name is confirmed. The code currently defaults to `data_api_adminlevelone`, but that should be validated against the ACMAD WFS capabilities or country information API response.
 
 Planned QGIS boundary parameters:
 
@@ -143,7 +156,7 @@ Boundary source:
 - Fetch from ACMAD WFS
 
 Country code:
-- NER
+- 181 for Niger
 
 Admin level:
 - 0 country

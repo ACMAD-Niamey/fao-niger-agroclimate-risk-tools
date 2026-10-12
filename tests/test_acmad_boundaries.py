@@ -5,6 +5,7 @@ from agroclimate_core.acmad_boundaries import (
     BoundaryRequest,
     boundary_request_from_country_info,
     build_wfs_getfeature_url,
+    niger_boundary_request,
 )
 
 
@@ -30,17 +31,17 @@ class AcmadBoundaryTests(unittest.TestCase):
     def test_boundary_request_from_explicit_country_info(self):
         request = boundary_request_from_country_info(
             {
-                "iso3": "NER",
+                "country_code": 181,
                 "wfs_url": "https://example.org/geoserver/ows",
-                "admin0_typename": "acmad:country_boundaries",
-                "country_field": "adm0_a3",
+                "admin0_typename": "data_api_adminlevelzero",
+                "country_field": "country_code",
             },
             admin_level=0,
         )
 
-        self.assertEqual(request.country_code, "NER")
-        self.assertEqual(request.type_name, "acmad:country_boundaries")
-        self.assertEqual(request.country_field, "adm0_a3")
+        self.assertEqual(request.country_code, 181)
+        self.assertEqual(request.type_name, "data_api_adminlevelzero")
+        self.assertEqual(request.country_field, "country_code")
 
     def test_boundary_request_from_layer_template(self):
         request = boundary_request_from_country_info(
@@ -54,6 +55,19 @@ class AcmadBoundaryTests(unittest.TestCase):
 
         self.assertEqual(request.wfs_url, "https://example.org/geoserver/ows")
         self.assertEqual(request.type_name, "acmad:ner_adm1")
+
+    def test_niger_boundary_request_uses_actual_country_code_and_admin0_layer(self):
+        request = niger_boundary_request(
+            wfs_url="https://example.org/geoserver/ows",
+            admin_level=0,
+        )
+        url = build_wfs_getfeature_url(request)
+
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        self.assertEqual(request.type_name, "data_api_adminlevelzero")
+        self.assertEqual(query["typeName"], ["data_api_adminlevelzero"])
+        self.assertEqual(query["CQL_FILTER"], ["country_code=181"])
 
 
 if __name__ == "__main__":

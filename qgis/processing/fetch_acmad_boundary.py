@@ -15,14 +15,7 @@ from qgis.core import (
     QgsVectorLayer,
 )
 
-try:
-    from .bootstrap import ensure_src_path
-except ImportError:
-    from bootstrap import ensure_src_path
-
-ensure_src_path()
-
-from agroclimate_core.acmad_boundaries import DEFAULT_ACMAD_GEOSERVER_URL, build_wfs_getfeature_url, niger_boundary_request
+from ..agroclimate_core.acmad_boundaries import DEFAULT_ACMAD_GEOSERVER_URL, build_wfs_getfeature_url, niger_boundary_request
 
 
 class FetchAcmadBoundaryAlgorithm(QgsProcessingAlgorithm):

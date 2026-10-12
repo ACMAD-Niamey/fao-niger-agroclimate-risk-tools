@@ -23,25 +23,15 @@ from qgis.core import (
     QgsVectorLayer,
 )
 
-try:
-    from .bootstrap import ensure_src_path
-except ImportError:
-    from bootstrap import ensure_src_path
-
-ensure_src_path()
-
-from agroclimate_core.risk import (
+from ..agroclimate_core.risk import (
     calculate_exposure_score,
     calculate_hazard_score,
     calculate_risk_score,
     classify_risk,
 )
-from agroclimate_core.acmad_boundaries import DEFAULT_ACMAD_GEOSERVER_URL, build_wfs_getfeature_url, niger_boundary_request
+from ..agroclimate_core.acmad_boundaries import DEFAULT_ACMAD_GEOSERVER_URL, build_wfs_getfeature_url, niger_boundary_request
 
-try:
-    from .fields import OUTPUT_FIELD_DEFINITIONS
-except ImportError:
-    from fields import OUTPUT_FIELD_DEFINITIONS
+from .fields import OUTPUT_FIELD_DEFINITIONS
 
 
 class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):

@@ -2,35 +2,9 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 from qgis.core import QgsApplication
 
-
-def _ensure_repo_paths() -> None:
-    plugin_dir = Path(__file__).resolve().parent
-    repo_root = plugin_dir.parents[1]
-
-    candidate_paths = (
-        # Development mode: plugin directory is repo/qgis/plugin.
-        repo_root / "qgis" / "processing",
-        repo_root / "src",
-        # Packaged mode: plugin zip contains processing/ and
-        # agroclimate_core/ directly under the plugin directory.
-        plugin_dir / "processing",
-        plugin_dir,
-    )
-
-    for path in candidate_paths:
-        path_text = str(path)
-        if path.exists() and path_text not in sys.path:
-            sys.path.insert(0, path_text)
-
-
-_ensure_repo_paths()
-
-from provider import FaoNigerAgroclimateProvider
+from .processing.provider import FaoNigerAgroclimateProvider
 
 
 class FaoNigerAgroclimatePlugin:

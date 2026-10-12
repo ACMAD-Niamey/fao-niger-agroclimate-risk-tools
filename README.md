@@ -24,6 +24,7 @@ The intended outputs include:
 - [Documentation index](docs/README.md): entry point for all technical and product documentation.
 - [Product documentation](docs/products/README.md): index for each product specification as it is developed.
 - [Agropastoral Drought Risk Map](docs/products/agropastoral-drought-risk-map.md): first implementation product specification.
+- [QGIS integration](docs/qgis-integration.md): Processing algorithm and future plugin wrapper notes.
 
 ## Implementation
 
@@ -32,6 +33,8 @@ The first implementation separates tested scoring logic from QGIS-specific code:
 - `src/fao_niger_agroclimate/`: core Python package for risk scoring.
 - `scripts/score_agropastoral_risk_csv.py`: command-line CSV scoring harness.
 - `qgis/processing/agropastoral_drought_risk.py`: QGIS Processing wrapper designed to be wrapped later by a plugin UI.
+- `qgis/processing/provider.py`: QGIS Processing provider for plugin registration.
+- `qgis/plugin/`: minimal plugin scaffold for the future QGIS plugin.
 - `tests/`: standard-library unit tests for the core scoring logic.
 
 Run tests:

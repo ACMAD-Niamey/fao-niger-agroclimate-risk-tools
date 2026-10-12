@@ -6,6 +6,7 @@ This folder contains the technical and product documentation for the FAO Niger a
 
 - [Technical note](technical-note.md): the main design document describing the proposed products, data sources, formulas, implementation architecture, and phased development plan.
 - [Implementation notes](implementation.md): current code structure, expected fields, formulas, test command, and next implementation tasks.
+- [QGIS integration](qgis-integration.md): QGIS Processing structure and plugin-ready design notes.
 - [Agropastoral Drought Risk Map](products/agropastoral-drought-risk-map.md): the first product selected for implementation.
 
 ## Product Documentation

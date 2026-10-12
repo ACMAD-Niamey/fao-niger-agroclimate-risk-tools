@@ -1,0 +1,34 @@
+"""Processing provider for FAO Niger agroclimate risk algorithms."""
+
+from __future__ import annotations
+
+from qgis.core import QgsProcessingProvider
+
+try:
+    from qgis.PyQt.QtGui import QIcon
+except ImportError:
+    QIcon = None
+
+try:
+    from .agropastoral_drought_risk import AgropastoralDroughtRiskAlgorithm
+except ImportError:
+    from agropastoral_drought_risk import AgropastoralDroughtRiskAlgorithm
+
+
+class FaoNigerAgroclimateProvider(QgsProcessingProvider):
+    """Registers FAO Niger agroclimate algorithms in QGIS Processing."""
+
+    def id(self):
+        return "fao_niger_agroclimate"
+
+    def name(self):
+        return "FAO Niger Agroclimate"
+
+    def longName(self):
+        return self.name()
+
+    def icon(self):
+        return QIcon() if QIcon is not None else super().icon()
+
+    def loadAlgorithms(self):
+        self.addAlgorithm(AgropastoralDroughtRiskAlgorithm())

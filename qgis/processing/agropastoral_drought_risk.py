@@ -6,7 +6,7 @@ the geospatial wrapper separate from the tested core scoring logic in
 QGIS plugin.
 """
 
-from qgis.PyQt.QtCore import QCoreApplication
+from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (
     QgsFeature,
     QgsFeatureSink,
@@ -18,11 +18,26 @@ from qgis.core import (
     QgsProcessingParameterFeatureSink,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterField,
-    QgsWkbTypes,
 )
-from PyQt5.QtCore import QVariant
 
-from fao_niger_agroclimate.risk import calculate_exposure_score, calculate_hazard_score, calculate_risk_score, classify_risk
+try:
+    from .bootstrap import ensure_src_path
+except ImportError:
+    from bootstrap import ensure_src_path
+
+ensure_src_path()
+
+from fao_niger_agroclimate.risk import (
+    calculate_exposure_score,
+    calculate_hazard_score,
+    calculate_risk_score,
+    classify_risk,
+)
+
+try:
+    from .fields import OUTPUT_FIELD_DEFINITIONS
+except ImportError:
+    from fields import OUTPUT_FIELD_DEFINITIONS
 
 
 class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
@@ -35,6 +50,7 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
     WATER_FIELD = "WATER_FIELD"
     VULNERABILITY_FIELD = "VULNERABILITY_FIELD"
     OUTPUT = "OUTPUT"
+    OUTPUT_FIELD_NAMES = [name for name, _field_type in OUTPUT_FIELD_DEFINITIONS]
 
     def tr(self, string):
         return QCoreApplication.translate("AgropastoralDroughtRisk", string)
@@ -57,18 +73,70 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return self.tr(
             "Calculates agropastoral drought risk from ACMAD CDI, optional fAPAR and soil moisture anomaly fields, "
-            "and local exposure fields. The output adds hazard_score, exposure_score, risk_score, and risk_class."
+            "and local exposure fields. The output adds hazard_score, exposure_score, risk_score, and risk_class. "
+            "This Processing algorithm is the backend used by the future plugin UI."
         )
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr("Input zonal layer"), [QgsProcessing.TypeVectorAnyGeometry]))
-        self.addParameter(QgsProcessingParameterField(self.CDI_FIELD, self.tr("CDI field"), parentLayerParameterName=self.INPUT))
-        self.addParameter(QgsProcessingParameterField(self.FAPAR_FIELD, self.tr("fAPAR anomaly field (optional)"), parentLayerParameterName=self.INPUT, optional=True))
-        self.addParameter(QgsProcessingParameterField(self.SOIL_FIELD, self.tr("Soil moisture anomaly field (optional)"), parentLayerParameterName=self.INPUT, optional=True))
-        self.addParameter(QgsProcessingParameterField(self.CULTIVATED_FIELD, self.tr("Cultivated exposure field"), parentLayerParameterName=self.INPUT))
-        self.addParameter(QgsProcessingParameterField(self.RANGELAND_FIELD, self.tr("Rangeland exposure field"), parentLayerParameterName=self.INPUT))
-        self.addParameter(QgsProcessingParameterField(self.WATER_FIELD, self.tr("Water-point exposure field"), parentLayerParameterName=self.INPUT))
-        self.addParameter(QgsProcessingParameterField(self.VULNERABILITY_FIELD, self.tr("Vulnerability field (optional)"), parentLayerParameterName=self.INPUT, optional=True))
+        self.addParameter(
+            QgsProcessingParameterFeatureSource(
+                self.INPUT,
+                self.tr("Input zonal layer"),
+                [QgsProcessing.TypeVectorAnyGeometry],
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterField(
+                self.CDI_FIELD,
+                self.tr("CDI field"),
+                parentLayerParameterName=self.INPUT,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterField(
+                self.FAPAR_FIELD,
+                self.tr("fAPAR anomaly field (optional)"),
+                parentLayerParameterName=self.INPUT,
+                optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterField(
+                self.SOIL_FIELD,
+                self.tr("Soil moisture anomaly field (optional)"),
+                parentLayerParameterName=self.INPUT,
+                optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterField(
+                self.CULTIVATED_FIELD,
+                self.tr("Cultivated exposure field"),
+                parentLayerParameterName=self.INPUT,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterField(
+                self.RANGELAND_FIELD,
+                self.tr("Rangeland exposure field"),
+                parentLayerParameterName=self.INPUT,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterField(
+                self.WATER_FIELD,
+                self.tr("Water-point exposure field"),
+                parentLayerParameterName=self.INPUT,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterField(
+                self.VULNERABILITY_FIELD,
+                self.tr("Vulnerability field (optional)"),
+                parentLayerParameterName=self.INPUT,
+                optional=True,
+            )
+        )
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr("Risk output")))
 
     def processAlgorithm(self, parameters, context, feedback):
@@ -85,10 +153,9 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
         vulnerability_field = self.parameterAsString(parameters, self.VULNERABILITY_FIELD, context)
 
         fields = QgsFields(source.fields())
-        fields.append(QgsField("hazard_score", QVariant.Double))
-        fields.append(QgsField("exposure_score", QVariant.Double))
-        fields.append(QgsField("risk_score", QVariant.Double))
-        fields.append(QgsField("risk_class", QVariant.String))
+        for field_name, field_type in OUTPUT_FIELD_DEFINITIONS:
+            qvariant_type = QVariant.Double if field_type == "double" else QVariant.String
+            fields.append(QgsField(field_name, qvariant_type))
 
         sink, dest_id = self.parameterAsSink(
             parameters,

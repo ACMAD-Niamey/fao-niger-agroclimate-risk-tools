@@ -13,6 +13,8 @@ Version 1 focuses on the scoring logic and a QGIS-ready wrapper. It does not yet
 | Core scoring package | `src/fao_niger_agroclimate/` | Implements hazard, exposure, and risk scoring without QGIS dependencies. |
 | CSV scoring script | `scripts/score_agropastoral_risk_csv.py` | Provides a lightweight way to test scoring on tabular/zonal data. |
 | QGIS Processing wrapper | `qgis/processing/agropastoral_drought_risk.py` | Adds risk fields to a QGIS vector layer using the core scoring package. |
+| QGIS Processing provider | `qgis/processing/provider.py` | Registers the risk algorithm in the QGIS Processing registry. |
+| QGIS plugin scaffold | `qgis/plugin/` | Minimal plugin shell for registering the Processing provider. |
 | Tests | `tests/` | Validates the scoring logic with Python's standard `unittest` framework. |
 
 ## Expected Input Fields
@@ -76,6 +78,12 @@ Risk Score = 0.60H + 0.40E
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
+```
+
+Syntax check without writing bytecode:
+
+```bash
+python3 -c "import ast, pathlib; files=[p for root in ['qgis','src','scripts','tests'] for p in pathlib.Path(root).rglob('*.py')]; [ast.parse(p.read_text(), filename=str(p)) for p in files]; print(f'AST syntax OK: {len(files)} files')"
 ```
 
 ## Next Implementation Tasks

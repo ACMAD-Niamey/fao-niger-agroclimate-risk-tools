@@ -1,0 +1,12 @@
+[general]
+name=FAO Niger Agroclimate Risk Tools
+description=QGIS Processing tools for FAO Niger agroclimatic risk mapping and advisory products.
+version=0.1.0
+qgisMinimumVersion=3.28
+author=ACMAD
+email=
+category=Analysis
+about=Plugin wrapper for FAO Niger agroclimate risk mapping workflows. The first registered algorithm calculates agropastoral drought risk from ACMAD drought indicators and local exposure layers.
+tracker=
+repository=https://github.com/ACMAD-Niamey/fao-niger-agroclimate-risk-tools
+homepage=https://github.com/ACMAD-Niamey/fao-niger-agroclimate-risk-tools

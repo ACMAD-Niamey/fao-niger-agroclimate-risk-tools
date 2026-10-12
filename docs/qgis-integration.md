@@ -77,7 +77,7 @@ typeName = data_api_adminlevelzero
 CQL_FILTER = country_code=181
 ```
 
-The fetched boundary still needs CDI and exposure fields before risk scoring can run. Until the overlay/join workflow is implemented, users should either select an existing layer that already contains the scoring fields or fetch the boundary first and then join/calculate the required fields.
+The fetched boundary is geometry plus boundary metadata. It does not contain drought or exposure scores. For a simple first test, leave the CDI and exposure field selectors blank and use the default score boxes in the algorithm. When proper zonal CDI and exposure fields are available later, select those fields and the tool will use them instead of the defaults.
 
 The algorithm adds:
 
@@ -87,6 +87,34 @@ exposure_score
 risk_score
 risk_class
 ```
+
+Core scoring inputs use a 0-3 scale:
+
+```text
+0 = no or very low concern
+1 = low
+2 = moderate
+3 = high
+```
+
+Required scoring dimensions:
+
+| Dimension | Simple boundary-only test | Production use |
+| --- | --- | --- |
+| CDI hazard | Use `Default CDI score` | Select a CDI field from ACMAD drought products |
+| Cultivated exposure | Use `Default cultivated exposure score` | Select a field from zonal crop exposure overlay |
+| Rangeland exposure | Use `Default rangeland exposure score` | Select a field from zonal rangeland exposure overlay |
+| Water-point exposure | Use `Default water-point exposure score` | Select a field from zonal water-point exposure overlay |
+
+Optional fields:
+
+| Field | Why it is optional |
+| --- | --- |
+| fAPAR anomaly | Adds vegetation-condition evidence when available, but CDI can run without it. |
+| Soil moisture anomaly | Adds soil-water stress evidence when available, but CDI can run without it. |
+| Vulnerability | Adjusts final risk when a vulnerability layer exists; otherwise risk is based on hazard and exposure only. |
+
+For the first implementation, do not map `country_code` or `region_code` to CDI or exposure. Those fields are boundary identifiers, not risk scores.
 
 The boundary fetch algorithm is:
 
@@ -134,12 +162,14 @@ The admin level 1 layer name should still be validated against ACMAD WFS capabil
 
 ## Expected Workflow
 
-1. Prepare or load a zonal input layer in QGIS.
-2. If no local zonal layer is available, run `Fetch ACMAD Boundary Layer` to create one from ACMAD WFS.
-3. Ensure the zonal layer contains CDI, optional fAPAR anomaly, optional soil moisture anomaly, and exposure fields.
-4. Run the risk Processing algorithm.
-5. Review the output risk classes.
-6. Apply QGIS styles and export maps/tables.
+1. Open `Agropastoral Drought Risk Map`.
+2. Set `Zonal boundary source` to `Fetch Niger boundary from ACMAD WFS` for a boundary-only test.
+3. Keep `ACMAD GeoServer/WFS URL` as `https://ada.acmad.org/geoserver`, unless testing another GeoServer.
+4. Leave the field selectors blank if the boundary layer has no CDI or exposure score fields.
+5. Keep or adjust the default 0-3 score boxes.
+6. Run the risk Processing algorithm.
+7. Review the output risk classes.
+8. Apply QGIS styles and export maps/tables.
 
 ## Quick Test Layer
 

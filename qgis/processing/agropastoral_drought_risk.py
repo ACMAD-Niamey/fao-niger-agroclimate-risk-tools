@@ -19,6 +19,7 @@ from qgis.core import (
     QgsProcessingParameterFeatureSink,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterField,
+    QgsProcessingParameterNumber,
     QgsProcessingParameterString,
     QgsVectorLayer,
 )
@@ -48,6 +49,10 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
     RANGELAND_FIELD = "RANGELAND_FIELD"
     WATER_FIELD = "WATER_FIELD"
     VULNERABILITY_FIELD = "VULNERABILITY_FIELD"
+    DEFAULT_CDI_SCORE = "DEFAULT_CDI_SCORE"
+    DEFAULT_CULTIVATED_SCORE = "DEFAULT_CULTIVATED_SCORE"
+    DEFAULT_RANGELAND_SCORE = "DEFAULT_RANGELAND_SCORE"
+    DEFAULT_WATER_SCORE = "DEFAULT_WATER_SCORE"
     OUTPUT = "OUTPUT"
     OUTPUT_FIELD_NAMES = [name for name, _field_type in OUTPUT_FIELD_DEFINITIONS]
     BOUNDARY_SOURCE_OPTIONS = [
@@ -80,8 +85,9 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return self.tr(
             "Calculates agropastoral drought risk from ACMAD CDI, optional fAPAR and soil moisture anomaly fields, "
-            "and local exposure fields. The output adds hazard_score, exposure_score, risk_score, and risk_class. "
+            "and exposure scores. The output adds hazard_score, exposure_score, risk_score, and risk_class. "
             "The zonal layer can be selected from QGIS or fetched from ACMAD WFS for Niger boundaries. "
+            "If the selected boundary has geometry only, leave the field selectors blank and use the default score boxes. "
             "This Processing algorithm is the backend used by the future plugin UI."
         )
 
@@ -137,9 +143,17 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterField(
                 self.CDI_FIELD,
-                self.tr("CDI field"),
+                self.tr("CDI field (optional if using default score)"),
                 parentLayerParameterName=self.INPUT,
                 optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.DEFAULT_CDI_SCORE,
+                self.tr("Default CDI score, used if no CDI field"),
+                type=QgsProcessingParameterNumber.Double,
+                defaultValue=2.0,
             )
         )
         self.addParameter(
@@ -161,25 +175,49 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterField(
                 self.CULTIVATED_FIELD,
-                self.tr("Cultivated exposure field"),
+                self.tr("Cultivated exposure field (optional if using default score)"),
                 parentLayerParameterName=self.INPUT,
                 optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.DEFAULT_CULTIVATED_SCORE,
+                self.tr("Default cultivated exposure score, used if no field"),
+                type=QgsProcessingParameterNumber.Double,
+                defaultValue=2.0,
             )
         )
         self.addParameter(
             QgsProcessingParameterField(
                 self.RANGELAND_FIELD,
-                self.tr("Rangeland exposure field"),
+                self.tr("Rangeland exposure field (optional if using default score)"),
                 parentLayerParameterName=self.INPUT,
                 optional=True,
             )
         )
         self.addParameter(
+            QgsProcessingParameterNumber(
+                self.DEFAULT_RANGELAND_SCORE,
+                self.tr("Default rangeland exposure score, used if no field"),
+                type=QgsProcessingParameterNumber.Double,
+                defaultValue=2.0,
+            )
+        )
+        self.addParameter(
             QgsProcessingParameterField(
                 self.WATER_FIELD,
-                self.tr("Water-point exposure field"),
+                self.tr("Water-point exposure field (optional if using default score)"),
                 parentLayerParameterName=self.INPUT,
                 optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.DEFAULT_WATER_SCORE,
+                self.tr("Default water-point exposure score, used if no field"),
+                type=QgsProcessingParameterNumber.Double,
+                defaultValue=1.0,
             )
         )
         self.addParameter(
@@ -195,13 +233,17 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
     def processAlgorithm(self, parameters, context, feedback):
         source, source_crs, source_wkb_type = self._resolve_source(parameters, context, feedback)
 
-        cdi_field = self._required_field(parameters, self.CDI_FIELD, context, "CDI field")
+        cdi_field = self.parameterAsString(parameters, self.CDI_FIELD, context).strip()
         fapar_field = self.parameterAsString(parameters, self.FAPAR_FIELD, context)
         soil_field = self.parameterAsString(parameters, self.SOIL_FIELD, context)
-        cultivated_field = self._required_field(parameters, self.CULTIVATED_FIELD, context, "cultivated exposure field")
-        rangeland_field = self._required_field(parameters, self.RANGELAND_FIELD, context, "rangeland exposure field")
-        water_field = self._required_field(parameters, self.WATER_FIELD, context, "water-point exposure field")
+        cultivated_field = self.parameterAsString(parameters, self.CULTIVATED_FIELD, context).strip()
+        rangeland_field = self.parameterAsString(parameters, self.RANGELAND_FIELD, context).strip()
+        water_field = self.parameterAsString(parameters, self.WATER_FIELD, context).strip()
         vulnerability_field = self.parameterAsString(parameters, self.VULNERABILITY_FIELD, context)
+        default_cdi_score = self.parameterAsDouble(parameters, self.DEFAULT_CDI_SCORE, context)
+        default_cultivated_score = self.parameterAsDouble(parameters, self.DEFAULT_CULTIVATED_SCORE, context)
+        default_rangeland_score = self.parameterAsDouble(parameters, self.DEFAULT_RANGELAND_SCORE, context)
+        default_water_score = self.parameterAsDouble(parameters, self.DEFAULT_WATER_SCORE, context)
 
         fields = QgsFields(source.fields())
         for field_name, field_type in OUTPUT_FIELD_DEFINITIONS:
@@ -226,14 +268,14 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
 
             try:
                 hazard_score = calculate_hazard_score(
-                    feature[cdi_field],
+                    self._field_or_default(feature, cdi_field, default_cdi_score),
                     feature[fapar_field] if fapar_field else None,
                     feature[soil_field] if soil_field else None,
                 )
                 exposure_score = calculate_exposure_score(
-                    feature[cultivated_field],
-                    feature[rangeland_field],
-                    feature[water_field],
+                    self._field_or_default(feature, cultivated_field, default_cultivated_score),
+                    self._field_or_default(feature, rangeland_field, default_rangeland_score),
+                    self._field_or_default(feature, water_field, default_water_score),
                 )
                 risk_score = calculate_risk_score(
                     hazard_score,
@@ -252,14 +294,13 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
 
         return {self.OUTPUT: dest_id}
 
-    def _required_field(self, parameters, parameter_name, context, label):
-        field_name = self.parameterAsString(parameters, parameter_name, context).strip()
+    def _field_or_default(self, feature, field_name, default_value):
         if not field_name:
-            raise QgsProcessingException(
-                f"Missing {label}. If you fetched a boundary from ACMAD WFS, it provides geometry only; "
-                "join or calculate the CDI and exposure fields before running the risk score."
-            )
-        return field_name
+            return default_value
+        try:
+            return feature[field_name]
+        except KeyError as exc:
+            raise QgsProcessingException(f"Field '{field_name}' was not found in the selected zonal layer.") from exc
 
     def _resolve_source(self, parameters, context, feedback):
         boundary_source = self.parameterAsEnum(parameters, self.BOUNDARY_SOURCE, context)

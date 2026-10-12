@@ -36,6 +36,10 @@ class QgisHelperTests(unittest.TestCase):
         self.assertIn("ACMAD GeoServer/WFS URL", source)
         self.assertIn("GeoServer workspace", source)
         self.assertIn("DEFAULT_ACMAD_GEOSERVER_URL", source)
+        self.assertIn("Default CDI score", source)
+        self.assertIn("Default cultivated exposure score", source)
+        self.assertIn("Default rangeland exposure score", source)
+        self.assertIn("Default water-point exposure score", source)
 
     def test_bootstrap_adds_src_path(self):
         bootstrap = load_module("qgis_bootstrap", REPO_ROOT / "qgis" / "processing" / "bootstrap.py")

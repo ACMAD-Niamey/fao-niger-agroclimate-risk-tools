@@ -18,6 +18,7 @@ class FaoNigerAgroclimatePlugin:
         ("Apply Risk Class Style", "risk_class.qml"),
         ("Apply Risk Score Style", "risk_score.qml"),
         ("Apply CDI Hazard Style", "cdi_hazard.qml"),
+        ("Apply Combined Hazard Style", "combined_hazard.qml"),
     )
 
     def __init__(self, iface):

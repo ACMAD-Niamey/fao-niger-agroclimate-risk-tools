@@ -4,10 +4,10 @@
     <rasterrenderer type="singlebandpseudocolor" band="1" classificationMin="0" classificationMax="3" alphaBand="-1">
       <rastershader>
         <colorrampshader colorRampType="DISCRETE" clip="0" classificationMode="1">
-          <item value="0" label="No drought or full recovery" color="#2ca25f" alpha="255"/>
-          <item value="1" label="Watch / partial recovery" color="#fee08b" alpha="255"/>
-          <item value="2" label="Warning" color="#fdae61" alpha="255"/>
-          <item value="3" label="Alert" color="#d73027" alpha="255"/>
+          <item value="0" label="No drought or full recovery" color="#f0f0f0" alpha="255"/>
+          <item value="1" label="Watch / partial recovery" color="#fed976" alpha="255"/>
+          <item value="2" label="Warning" color="#fd8d3c" alpha="255"/>
+          <item value="3" label="Alert" color="#e31a1c" alpha="255"/>
         </colorrampshader>
       </rastershader>
     </rasterrenderer>

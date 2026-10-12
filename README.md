@@ -75,14 +75,20 @@ Build a first risk raster output for QGIS:
 
 ```bash
 python3 scripts/build_agropastoral_risk_raster.py \
-  --year 2026 \
-  --month 5 \
-  --dekad 21 \
-  --output-dir outputs/niger-risk-2026-05-21
+  --analysis-date 2026-05-24
 ```
 
 The script downloads ACMAD CDI unless `--cdi-raster` is supplied, fetches the Niger boundary from ACMAD WFS, clips CDI to Niger, combines it with exposure scores, and writes GeoTIFF outputs.
 ACMAD CDI detailed codes are remapped to the `0-3` hazard scale by default.
+Generated files are written under `outputs/` by default, and `outputs/` is ignored by Git.
+
+The QGIS plugin includes style actions under `Plugins > FAO Niger Agroclimate`:
+
+- `Apply Risk Class Style`
+- `Apply Risk Score Style`
+- `Apply CDI Hazard Style`
+
+Load the output raster in QGIS, select it in the Layers panel, then choose the matching style action.
 
 ## Implementation Direction
 

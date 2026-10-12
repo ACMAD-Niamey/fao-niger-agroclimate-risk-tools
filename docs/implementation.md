@@ -51,11 +51,18 @@ Run from the repository root:
 
 ```bash
 python3 scripts/build_agropastoral_risk_raster.py \
-  --year 2026 \
-  --month 5 \
-  --dekad 21 \
-  --output-dir outputs/niger-risk-2026-05-21
+  --analysis-date 2026-05-24
 ```
+
+The script converts the analysis date to the ACMAD dekad:
+
+```text
+day 1-10 = dekad 1
+day 11-20 = dekad 11
+day 21-end of month = dekad 21
+```
+
+If `--output-dir` is omitted, outputs are written under `outputs/niger-risk-<analysis-date>`. The `outputs/` directory is ignored by Git.
 
 The runner writes:
 
@@ -65,6 +72,16 @@ agropastoral_risk_score.tif
 agropastoral_risk_class.tif
 agropastoral_risk_stack.tif
 ```
+
+The QGIS plugin package includes reusable raster styles:
+
+```text
+qgis/styles/cdi_hazard.qml
+qgis/styles/risk_score.qml
+qgis/styles/risk_class.qml
+```
+
+After loading an output raster in QGIS, select the layer and use `Plugins > FAO Niger Agroclimate` to apply the matching style.
 
 For testing with an already downloaded CDI file:
 

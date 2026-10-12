@@ -41,6 +41,24 @@ class QgisHelperTests(unittest.TestCase):
         self.assertIn("Default rangeland exposure score", source)
         self.assertIn("Default water-point exposure score", source)
 
+    def test_plugin_exposes_raster_style_actions(self):
+        source = (REPO_ROOT / "qgis" / "plugin" / "plugin.py").read_text()
+        self.assertIn("Apply Risk Class Style", source)
+        self.assertIn("risk_class.qml", source)
+        self.assertIn("risk_score.qml", source)
+        self.assertIn("cdi_hazard.qml", source)
+
+    def test_plugin_builder_packages_qgis_styles(self):
+        source = (REPO_ROOT / "scripts" / "build_qgis_plugin.py").read_text()
+        self.assertIn("qgis\" / \"styles", source)
+        self.assertIn("build_root / \"styles", source)
+
+    def test_qgis_style_files_exist(self):
+        style_dir = REPO_ROOT / "qgis" / "styles"
+        self.assertTrue((style_dir / "risk_class.qml").exists())
+        self.assertTrue((style_dir / "risk_score.qml").exists())
+        self.assertTrue((style_dir / "cdi_hazard.qml").exists())
+
     def test_bootstrap_adds_src_path(self):
         bootstrap = load_module("qgis_bootstrap", REPO_ROOT / "qgis" / "processing" / "bootstrap.py")
         src_path = str(REPO_ROOT / "src")

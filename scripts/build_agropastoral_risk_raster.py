@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 import requests
@@ -18,6 +19,31 @@ from agroclimate_core.acmad_download import DEFAULT_ACMAD_API_BASE_URL, download
 from agroclimate_core.raster_pipeline import ExposureDefaults, build_agropastoral_risk_rasters, risk_class_labels
 
 
+def dekad_from_day(day: int) -> int:
+    if day <= 10:
+        return 1
+    if day <= 20:
+        return 11
+    return 21
+
+
+def resolve_analysis_period(args: argparse.Namespace) -> tuple[int, int, int, str]:
+    if args.analysis_date:
+        analysis_date = date.fromisoformat(args.analysis_date)
+        return (
+            analysis_date.year,
+            analysis_date.month,
+            dekad_from_day(analysis_date.day),
+            analysis_date.isoformat(),
+        )
+
+    if args.year is None or args.month is None:
+        raise SystemExit("Either --analysis-date or both --year and --month are required.")
+
+    analysis_label = f"{args.year}-{args.month:02d}-{args.dekad:02d}"
+    return args.year, args.month, args.dekad, analysis_label
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -25,10 +51,18 @@ def parse_args() -> argparse.Namespace:
             "and write GeoTIFF risk outputs for QGIS."
         )
     )
-    parser.add_argument("--year", type=int, required=True, help="ACMAD product year.")
-    parser.add_argument("--month", type=int, required=True, help="ACMAD product month, 1-12.")
+    parser.add_argument(
+        "--analysis-date",
+        help="Analysis date as YYYY-MM-DD. The script derives year, month, and dekad from the day.",
+    )
+    parser.add_argument("--year", type=int, help="ACMAD product year. Required if --analysis-date is not used.")
+    parser.add_argument("--month", type=int, help="ACMAD product month, 1-12. Required if --analysis-date is not used.")
     parser.add_argument("--dekad", type=int, default=1, choices=(1, 11, 21), help="Dekad for CDI/SMA/FAPAR products.")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/agropastoral_risk"), help="Output directory.")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Output directory. Defaults to outputs/niger-risk-<analysis-date-or-period>.",
+    )
     parser.add_argument("--acmad-api-base-url", default=DEFAULT_ACMAD_API_BASE_URL, help="ACMAD API base URL.")
     parser.add_argument("--acmad-geoserver-url", default="https://ada.acmad.org/geoserver", help="ACMAD GeoServer base URL.")
     parser.add_argument("--cdi-raster", type=Path, help="Use an existing CDI GeoTIFF instead of downloading from ACMAD.")
@@ -67,24 +101,26 @@ def download_niger_boundary(output_path: Path, geoserver_url: str) -> Path:
 
 def main() -> int:
     args = parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    year, month, dekad, analysis_label = resolve_analysis_period(args)
+    output_dir = args.output_dir or Path("outputs") / f"niger-risk-{analysis_label}"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    boundary_path = download_niger_boundary(args.output_dir / "niger_boundary_admin0.geojson", args.acmad_geoserver_url)
+    boundary_path = download_niger_boundary(output_dir / "niger_boundary_admin0.geojson", args.acmad_geoserver_url)
     cdi_path = args.cdi_raster
     if cdi_path is None:
         cdi_path = download_acmad_raster(
             data_name="cdi",
-            year=args.year,
-            month=args.month,
-            dekad=args.dekad,
-            output_path=args.output_dir / f"acmad_cdi_{args.year}_{args.month:02d}_{args.dekad:02d}.tif",
+            year=year,
+            month=month,
+            dekad=dekad,
+            output_path=output_dir / f"acmad_cdi_{year}_{month:02d}_{dekad:02d}.tif",
             base_url=args.acmad_api_base_url,
         )
 
     outputs = build_agropastoral_risk_rasters(
         cdi_raster=cdi_path,
         boundary_geojson=boundary_path,
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         cultivated_raster=args.cultivated_raster,
         rangeland_raster=args.rangeland_raster,
         water_points_raster=args.water_points_raster,
@@ -96,6 +132,7 @@ def main() -> int:
         cdi_code_scheme="one-based" if args.one_based_cdi else args.cdi_code_scheme,
     )
 
+    print(f"Analysis period: year={year}, month={month}, dekad={dekad}")
     print("Risk outputs written:")
     for name, path in outputs.items():
         print(f"- {name}: {path}")

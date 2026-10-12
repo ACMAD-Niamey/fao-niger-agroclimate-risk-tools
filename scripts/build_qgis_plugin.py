@@ -40,12 +40,14 @@ def build_plugin(repo_root: Path, output_dir: Path) -> Path:
 
     plugin_source = repo_root / "qgis" / "plugin"
     processing_source = repo_root / "qgis" / "processing"
+    styles_source = repo_root / "qgis" / "styles"
     package_source = repo_root / "src" / "agroclimate_core"
 
     for file_name in ("__init__.py", "metadata.txt", "plugin.py", "icon.svg"):
         shutil.copy2(plugin_source / file_name, build_root / file_name)
 
     copytree(processing_source, build_root / "processing")
+    copytree(styles_source, build_root / "styles")
     copytree(package_source, build_root / "agroclimate_core")
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:

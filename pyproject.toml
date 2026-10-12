@@ -12,5 +12,9 @@ dependencies = [
     "requests",
 ]
 
+[project.optional-dependencies]
+# Only needed to share prepared layers through MinIO (agroclimate_core.storage).
+storage = ["minio"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

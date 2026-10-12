@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -11,6 +12,8 @@ def load_runner():
     path = REPO_ROOT / "scripts" / "build_agropastoral_risk_raster.py"
     spec = importlib.util.spec_from_file_location("build_agropastoral_risk_raster", path)
     module = importlib.util.module_from_spec(spec)
+    # dataclasses look their module up in sys.modules, so register it before executing.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 

@@ -103,20 +103,48 @@ def clip_raster_to_cutline(
     output_path: str | Path,
     *,
     nodata: float = RASTER_NODATA,
+    grid_template: str | Path | None = None,
 ) -> Path:
-    """Clip a raster to a vector cutline and return the clipped GeoTIFF path."""
+    """Clip a raster to a vector cutline and return the clipped GeoTIFF path.
+
+    With ``grid_template`` the result is also resampled onto that raster's grid
+    (nearest neighbour, so class codes stay intact). This is how a coarse 1 degree
+    hazard is placed on the finer exposure grid: each coarse cell is repeated, and
+    the map shows the hazard is as coarse as it is rather than inventing detail.
+    """
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    warp_options: dict = {}
+    if grid_template is None:
+        warp_options["cropToCutline"] = True
+    else:
+        template = _open_dataset(grid_template)
+        gt = template.GetGeoTransform()
+        warp_options.update(
+            outputBounds=(
+                gt[0],
+                gt[3] + gt[5] * template.RasterYSize,
+                gt[0] + gt[1] * template.RasterXSize,
+                gt[3],
+            ),
+            width=template.RasterXSize,
+            height=template.RasterYSize,
+            dstSRS=template.GetProjection(),
+            resampleAlg="near",
+        )
     result = gdal.Warp(
         str(output_path),
         str(input_path),
         cutlineDSName=str(cutline_path),
-        cropToCutline=True,
         dstNodata=nodata,
+        # Float32 so the -9999 nodata fits: an 8-bit source (the combined hazard) would
+        # otherwise clamp it to 0, which is also a valid-looking class code elsewhere.
+        outputType=gdal.GDT_Float32,
         multithread=True,
         format="GTiff",
         creationOptions=["COMPRESS=LZW", "TILED=YES"],
+        **warp_options,
     )
     if result is None:
         raise RuntimeError(f"Could not clip raster {input_path} to {cutline_path}")
@@ -131,8 +159,17 @@ def align_raster_to_template(
     output_path: str | Path,
     *,
     nodata: float = RASTER_NODATA,
+    resample_alg: str = "average",
 ) -> Path:
-    """Resample an input raster to the grid of a template raster."""
+    """Resample an input raster to the grid of a template raster.
+
+    ``average`` is the default because exposure inputs are usually finer than
+    the hazard grid (for example 10 m land cover vs a 0.1 degree CDI cell);
+    nearest-neighbour would sample one fine pixel per coarse cell and discard
+    the rest. The source raster's own nodata tag is deliberately left for GDAL
+    to honour: forcing ``srcNodata`` would turn a source nodata such as 255 into
+    a valid-looking score.
+    """
 
     template = _open_dataset(template_path)
     transform = template.GetGeoTransform()
@@ -151,9 +188,8 @@ def align_raster_to_template(
         width=template.RasterXSize,
         height=template.RasterYSize,
         dstSRS=template.GetProjection(),
-        srcNodata=nodata,
         dstNodata=nodata,
-        resampleAlg="near",
+        resampleAlg=resample_alg,
         creationOptions=["COMPRESS=LZW", "TILED=YES"],
     )
     if result is None:
@@ -166,6 +202,7 @@ def align_raster_to_template(
 def _read_score_raster(
     path: str | Path | None,
     template: gdal.Dataset,
+    template_path: Path,
     *,
     default_score: float,
     temp_dir: Path,
@@ -176,7 +213,7 @@ def _read_score_raster(
         return array, np.ones_like(array, dtype=bool)
 
     aligned_path = temp_dir / f"{name}_aligned.tif"
-    align_raster_to_template(path, temp_dir / "cdi_clipped.tif", aligned_path)
+    align_raster_to_template(path, template_path, aligned_path)
     dataset = _open_dataset(aligned_path)
     array, nodata = _band_array(dataset)
     return array, _valid_mask(array, nodata)
@@ -195,6 +232,16 @@ def _normalize_cdi(array: np.ndarray, *, cdi_code_scheme: str) -> np.ndarray:
         scores[(array >= 7) & (array <= 10)] = 3
         scores[(array >= 11) & (array <= 12)] = 1
         scores[(array >= 13) & (array <= 14)] = 0
+        return scores
+    if cdi_code_scheme == "combined-hazard":
+        # ACMAD combined monitoring and forecast hazard: 1-9, 0 = nodata. Each hazard level
+        # keeps the named level it sits under (3 Watch, 5 Warning, 7 Alert) and the
+        # in-between classes go to the lower bin. To be confirmed with ACMAD.
+        scores = np.full(array.shape, RASTER_NODATA, dtype="float32")
+        scores[(array >= 1) & (array <= 2)] = 0
+        scores[(array >= 3) & (array <= 4)] = 1
+        scores[(array >= 5) & (array <= 6)] = 2
+        scores[(array >= 7) & (array <= 9)] = 3
         return scores
     raise ValueError(f"Unsupported CDI code scheme: {cdi_code_scheme}")
 
@@ -228,24 +275,33 @@ def build_agropastoral_risk_rasters(
     water_points_raster: str | Path | None = None,
     exposure_defaults: ExposureDefaults = ExposureDefaults(),
     cdi_code_scheme: str = "score",
+    grid_template: str | Path | None = None,
+    hazard_name: str = "cdi",
+    mask_to_agropastoral: bool = False,
 ) -> dict[str, Path]:
-    """Create clipped CDI, exposure, risk score, risk class, and stack rasters."""
+    """Create clipped hazard, exposure, risk score, risk class, and stack rasters.
+
+    ``cdi_raster`` is the hazard input (CDI or the combined hazard; the argument
+    name is kept for existing callers). ``hazard_name`` names its clipped output
+    and its key in the returned dict.
+    """
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    clipped_cdi_path = output_dir / "cdi_niger.tif"
-    clip_raster_to_cutline(cdi_raster, boundary_geojson, clipped_cdi_path)
+    clipped_cdi_path = output_dir / f"{hazard_name}_niger.tif"
+    clip_raster_to_cutline(cdi_raster, boundary_geojson, clipped_cdi_path, grid_template=grid_template)
 
     cdi_dataset = _open_dataset(clipped_cdi_path)
     cdi_raw, cdi_nodata = _band_array(cdi_dataset)
     cdi = _normalize_cdi(cdi_raw, cdi_code_scheme=cdi_code_scheme)
     valid = _valid_mask(cdi_raw, cdi_nodata)
     valid &= cdi != RASTER_NODATA
-    validate_score_range("CDI", cdi, valid)
+    validate_score_range("hazard", cdi, valid)
 
     cultivated, cultivated_valid = _read_score_raster(
         cultivated_raster,
         cdi_dataset,
+        clipped_cdi_path,
         default_score=exposure_defaults.cultivated,
         temp_dir=output_dir,
         name="cultivated_exposure",
@@ -253,6 +309,7 @@ def build_agropastoral_risk_rasters(
     rangeland, rangeland_valid = _read_score_raster(
         rangeland_raster,
         cdi_dataset,
+        clipped_cdi_path,
         default_score=exposure_defaults.rangeland,
         temp_dir=output_dir,
         name="rangeland_exposure",
@@ -260,12 +317,15 @@ def build_agropastoral_risk_rasters(
     water_points, water_valid = _read_score_raster(
         water_points_raster,
         cdi_dataset,
+        clipped_cdi_path,
         default_score=exposure_defaults.water_points,
         temp_dir=output_dir,
         name="water_point_exposure",
     )
 
     valid &= cultivated_valid & rangeland_valid & water_valid
+    if mask_to_agropastoral:
+        valid &= (cultivated > 0) | (rangeland > 0)
     validate_score_range("cultivated exposure", cultivated, valid)
     validate_score_range("rangeland exposure", rangeland, valid)
     validate_score_range("water-point exposure", water_points, valid)
@@ -300,7 +360,7 @@ def build_agropastoral_risk_rasters(
         ("hazard_score", cdi),
         ("exposure_score", exposure),
         ("risk_score", risk_score),
-        ("risk_class", risk_class.astype("float32")),
+        ("risk_class", np.where(valid, risk_class, RASTER_NODATA).astype("float32")),
     )
     for index, (name, array) in enumerate(stack_arrays, start=1):
         band = stack_ds.GetRasterBand(index)
@@ -311,7 +371,7 @@ def build_agropastoral_risk_rasters(
     stack_ds = None
 
     return {
-        "cdi": clipped_cdi_path,
+        hazard_name: clipped_cdi_path,
         "risk_score": risk_score_path,
         "risk_class": risk_class_path,
         "risk_stack": stack_path,

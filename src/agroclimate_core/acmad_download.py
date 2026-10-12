@@ -13,10 +13,15 @@ import requests
 
 DEFAULT_ACMAD_API_BASE_URL = "https://ada.acmad.org"
 DOWNLOAD_DATA_PATH = "/api/data_api/download_data/"
+DOWNLOAD_COMBINED_PRODUCT_PATH = "/api/data_api/download_combined_product/"
 
 
 class AcmadDownloadError(RuntimeError):
     """Raised when an ACMAD raster download cannot be completed."""
+
+
+class AcmadProductNotFound(AcmadDownloadError):
+    """Raised when ACMAD reports it has no asset for the requested product and period."""
 
 
 def _absolute_url(base_url: str, url: str) -> str:
@@ -138,3 +143,38 @@ def download_acmad_raster(
     file_response = session.get(_absolute_url(base_url, str(download_url)), stream=True, timeout=120)
     file_response.raise_for_status()
     return _write_response_content(file_response, output_path)
+
+
+def download_combined_product(
+    *,
+    data_name: str,
+    forecast_period: str,
+    year: int,
+    output_path: str | Path,
+    base_url: str = DEFAULT_ACMAD_API_BASE_URL,
+    session: requests.Session | None = None,
+) -> Path:
+    """Download a seasonal combined product, for example ``combined_drought_hazard_era5``.
+
+    Unlike ``download_data`` this endpoint answers directly: a GeoTIFF when the
+    asset exists and a 404 with an explanatory JSON ``error`` when it does not,
+    so there is no job to poll. The combined products are not listed in
+    ``get_available_datasets``, which is why callers must handle the 404.
+    """
+
+    client = session or requests.Session()
+    url = _absolute_url(base_url, DOWNLOAD_COMBINED_PRODUCT_PATH)
+    params = {"data_name": data_name, "forecast_period": forecast_period, "year": int(year)}
+    response = client.get(url, params=params, stream=True, timeout=120)
+
+    if response.status_code == 404:
+        try:
+            message = response.json().get("error", "")
+        except ValueError:
+            message = ""
+        raise AcmadProductNotFound(message or f"ACMAD has no {data_name} for {forecast_period} {year}")
+    response.raise_for_status()
+    if _is_json_response(response):
+        # A 200 with JSON is not a raster; writing it to a .tif would fail much later in GDAL.
+        raise AcmadDownloadError(f"Expected a GeoTIFF from ACMAD but received JSON: {response.content[:200]!r}")
+    return _write_response_content(response, Path(output_path))

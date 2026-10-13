@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The project has 
 
 ### Added
 
+- When no exposure rasters exist, the panel now offers **Prepare exposure, then run** (and *Run as a test anyway*, *Cancel*) as buttons, and continues the run by itself once the exposure is ready. A failed preparation does not start the run. Before, it asked a Yes/No question and left the user to find the right button. Plugin version 0.3.2.
+- Easier ways to open the panel: the first entry of the *FAO Niger Agroclimate* group in the Processing Toolbox (*Agroclimate Risk panel*), and a one-time message when the plugin loads, with an "Open the risk panel" button. Plugin version 0.3.1.
 - The panel's period drop-down: it lists the CDI dekads and seasonal outlooks ACMAD has actually published, latest first, with the latest selected by default, a Refresh button, and an "Other date" entry for typing a date (also the fallback when offline). It replaces the free date box and the separate season fields.
 - A [walkthrough of the panel](docs/using-the-panel.md), and the boundary source is now recorded in `run_metadata.json`.
 - A QGIS panel (plugin version 0.3.0, with the period drop-down; 0.2.0 had a free date box): choose current conditions or the seasonal outlook and a date, run in the background with progress and cancel, and have the styled results added to the map. The Results tab shows class areas and shares as a chart and table, and a summary by region for any polygon layer. A button opens the results folder. Exposure can be prepared from the panel.
@@ -35,6 +37,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The project has 
 
 ### Fixed
 
+- The exposure status line under the folder box was clipped in a real QGIS window. It is now a short sentence, with the detail in a tooltip.
+- The panel was hard to find: the Processing Toolbox, where most users look first, listed only the older vector tools. A step that fails while the plugin loads (menu, toolbar, styles, provider) is now reported in the message bar and the log, instead of silently leaving the panel out.
 - Closing or disabling the plugin while a background request was still running could crash QGIS, because the finished task called into the deleted panel. The controller now cancels outstanding tasks and ignores late results.
 - Supplying an exposure raster crashed the pipeline (it looked for a file name that was never written).
 - Exposure rasters ignored their own nodata value and were resampled by nearest neighbour; they now keep their nodata and are averaged.

@@ -40,8 +40,8 @@ One rule runs through the design: **consume, don't compute.** Hazard and forecas
 
 1. Build the plugin: `python3 scripts/build_qgis_plugin.py` (writes `dist/qgis/fao_niger_agroclimate.zip`).
 2. In QGIS 3.28 or later: `Plugins > Manage and Install Plugins > Install from ZIP`, choose the zip, and enable the plugin.
-3. Check `Plugins > Manage and Install Plugins > Installed` shows version 0.3.0 or later, restart QGIS if you reinstalled over an older version, then click the plugin's toolbar icon (or `Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel`).
-4. On the **Run** tab, prepare exposure once (about 5 minutes, needs internet), pick a date and press **Run and add to map**. The **Results** tab shows the statistics; add a region layer there for a summary by region. The optional language model is set up in the **Settings** tab.
+3. Check `Plugins > Manage and Install Plugins > Installed` shows version 0.3.2 or later, restart QGIS if you reinstalled over an older version, then open the panel: use the button in the message QGIS shows when it loads the plugin, the first entry of the *FAO Niger Agroclimate* group in the Processing Toolbox (*Agroclimate Risk panel*), the toolbar icon, or `Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel`.
+4. On the **Run** tab, pick a period and press **Run and add to map**. The first time, the panel offers **Prepare exposure, then run** (about 5 minutes, needs internet, once only) and carries on by itself. The **Results** tab shows the statistics; add a region layer there for a summary by region. The optional language model is set up in the **Settings** tab.
 
 See [using the panel](docs/using-the-panel.md) for what to choose, and [reading the risk maps](docs/reading-the-maps.md) for what the layers mean. The Processing Toolbox also has older vector tools; they do not build the map.
 

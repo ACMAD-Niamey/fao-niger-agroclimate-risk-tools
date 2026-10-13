@@ -4,11 +4,18 @@
 
 ## Where it is
 
-After installing the plugin zip (`Plugins > Manage and Install Plugins > Install from ZIP`), open the panel from the toolbar icon or from `Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel`. It opens as a dock with three tabs: **Run**, **Results**, **Settings**.
+After installing the plugin zip (`Plugins > Manage and Install Plugins > Install from ZIP`), there are four ways to open the panel. It opens as a dock with three tabs: **Run**, **Results**, **Settings**.
 
-The Processing Toolbox also lists FAO Niger Agroclimate tools. Those are older, advanced tools that score a vector layer. They do not build the map and do not download ACMAD data. Use the panel.
+1. **The message when QGIS loads the plugin** (once per version) has an **Open the risk panel** button.
+2. **The Processing Toolbox**: in the group *FAO Niger Agroclimate*, the first entry is **Agroclimate Risk panel (open this to build the risk map)**. Double-click it and press Run.
+3. **The menu**: `Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel`.
+4. **The toolbar icon.** If you cannot see it, tick `View > Toolbars > Plugins Toolbar`.
 
-If you do not see the toolbar icon or the menu entry, check `Plugins > Manage and Install Plugins > Installed` that the plugin is enabled and shows version 0.3.0 or later, then reinstall the zip and restart QGIS.
+The other entries in the Processing Toolbox group (*Fetch ACMAD Boundary Layer* and *Score a zonal layer (vector, advanced)*) are older, advanced tools. They do not build the map and do not download ACMAD hazard data. Use the panel.
+
+If part of the plugin fails to load, QGIS now shows a red message at the top naming the part that failed, and the details go to the Log Messages panel (tab *FAO Niger Agroclimate*).
+
+If you do not see the toolbar icon or the menu entry, check `Plugins > Manage and Install Plugins > Installed` that the plugin is enabled and shows version 0.3.2 or later, then reinstall the zip and restart QGIS.
 
 ## What it looks like
 
@@ -39,7 +46,7 @@ The older dialog titled "Score a zonal layer (vector, advanced)" is a different,
 | What to map | **Current conditions** for what is happening now (the drought indicator, CDI). **Seasonal outlook** for what the season is expected to bring |
 | Period | Pick the period to map from the list. It shows only what ACMAD has **published**, latest first, and the latest ("Latest available") is selected by default. For the seasonal outlook it lists the published seasons instead. **Refresh** asks ACMAD again |
 | Other date | The last list entry. It reveals a date box for a date you type. Use it if you are offline; if that date is not published yet, the panel uses the latest earlier period and tells you |
-| Exposure folder | A folder holding `cultivated_exposure.tif` and `rangeland_exposure.tif`. The first time, press **Prepare from land cover** (about 5 minutes, needs internet) |
+| Exposure folder | A folder holding `cultivated_exposure.tif` and `rangeland_exposure.tif`. **The first time there is nothing in it**: press **Run and add to map** and the panel offers **Prepare exposure, then run**. It downloads land cover for Niger (about 430 MB, around 5 minutes, needs internet) and then carries on with the run by itself. You only do this once. You can also press **Prepare from land cover** yourself, or point the folder at one that already has the rasters. The choice *Run as a test anyway* uses constant placeholder exposure and is not a real result |
 | Map only cropland and rangeland | Leave ticked. Blank cells are not scored and are not "low risk" |
 | Output folder | Where the rasters and `run_metadata.json` are written |
 | Advanced | Normally leave alone. It limits how far back the panel may fall back |

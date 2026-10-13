@@ -43,7 +43,10 @@ def build_plugin(repo_root: Path, output_dir: Path) -> Path:
     styles_source = repo_root / "qgis" / "styles"
     package_source = repo_root / "src" / "agroclimate_core"
 
-    for file_name in ("__init__.py", "metadata.txt", "plugin.py", "icon.svg"):
+    # Every module in the plugin folder ships; listing names by hand silently dropped new ones.
+    for source_file in sorted(plugin_source.glob("*.py")):
+        shutil.copy2(source_file, build_root / source_file.name)
+    for file_name in ("metadata.txt", "icon.svg"):
         shutil.copy2(plugin_source / file_name, build_root / file_name)
 
     copytree(processing_source, build_root / "processing")

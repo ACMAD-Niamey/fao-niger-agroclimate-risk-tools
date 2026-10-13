@@ -4,20 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import Qgis, QgsApplication
 
+from .controller import RiskPanelController
 from .processing.provider import FaoNigerAgroclimateProvider
 
 
 class FaoNigerAgroclimatePlugin:
-    """Minimal plugin shell that registers the Processing provider."""
+    """Plugin shell: the risk panel, the Processing provider and the style actions."""
 
     MENU_NAME = "FAO Niger Agroclimate"
     STYLE_ACTIONS = (
         ("Apply Risk Class Style", "risk_class.qml"),
         ("Apply Risk Score Style", "risk_score.qml"),
-        ("Apply CDI Hazard Style", "cdi_hazard.qml"),
+        ("Apply CDI Hazard Score Style (0-3 band only)", "cdi_hazard.qml"),
         ("Apply Combined Hazard Style", "combined_hazard.qml"),
     )
 
@@ -25,6 +28,8 @@ class FaoNigerAgroclimatePlugin:
         self.iface = iface
         self.provider = None
         self.actions = []
+        self.panel_action = None
+        self.controller = None
 
     def initGui(self):
         existing_provider = QgsApplication.processingRegistry().providerById("fao_niger_agroclimate")
@@ -33,9 +38,36 @@ class FaoNigerAgroclimatePlugin:
 
         self.provider = FaoNigerAgroclimateProvider()
         QgsApplication.processingRegistry().addProvider(self.provider)
+        self._add_panel_action()
         self._add_style_actions()
 
+    def _add_panel_action(self):
+        icon = QIcon(str(Path(__file__).resolve().parent / "icon.svg"))
+        self.panel_action = QAction(icon, "Open Agroclimate Risk Panel", self.iface.mainWindow())
+        self.panel_action.triggered.connect(self.show_panel)
+        self.iface.addPluginToMenu(self.MENU_NAME, self.panel_action)
+        self.iface.addToolBarIcon(self.panel_action)
+
+    def show_panel(self):
+        """Create the panel on first use, so QGIS starts quickly when it is never opened."""
+
+        if self.controller is None:
+            self.controller = RiskPanelController(self.iface, Path(__file__).resolve().parent)
+            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.controller.dock)
+        self.controller.dock.show()
+        self.controller.dock.raise_()
+        self.controller.refresh_periods()  # cheap, in the background; keeps "latest available" current
+
     def unload(self):
+        if self.panel_action is not None:
+            self.iface.removePluginMenu(self.MENU_NAME, self.panel_action)
+            self.iface.removeToolBarIcon(self.panel_action)
+            self.panel_action = None
+        if self.controller is not None:
+            self.iface.removeDockWidget(self.controller.dock)
+            self.controller.dispose()
+            self.controller = None
+
         for action in self.actions:
             self.iface.removePluginMenu(self.MENU_NAME, action)
         self.actions = []

@@ -74,7 +74,7 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
         return "agropastoral_drought_risk"
 
     def displayName(self):
-        return self.tr("Agropastoral Drought Risk Map")
+        return self.tr("Score a zonal layer (vector, advanced)")
 
     def group(self):
         return self.tr("FAO Niger Agroclimate")
@@ -84,11 +84,12 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
 
     def shortHelpString(self):
         return self.tr(
-            "Calculates agropastoral drought risk from ACMAD CDI, optional fAPAR and soil moisture anomaly fields, "
-            "and exposure scores. The output adds hazard_score, exposure_score, risk_score, and risk_class. "
-            "The zonal layer can be selected from QGIS or fetched from ACMAD WFS for Niger boundaries. "
-            "If the selected boundary has geometry only, leave the field selectors blank and use the default score boxes. "
-            "This Processing algorithm is the backend used by the future plugin UI."
+            "ADVANCED. This scores a vector layer of zones (regions, intervention areas, a precomputed overlay) and "
+            "writes a vector layer with hazard_score, exposure_score, risk_score and risk_class. It does NOT download "
+            "ACMAD data and does NOT produce a raster. "
+            "To build the risk MAP (rasters added to the map, styled, with statistics), use the Agroclimate Risk "
+            "panel instead: toolbar icon, or Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel. "
+            "Use this algorithm only if you already have a zonal layer with CDI and exposure fields."
         )
 
     def initAlgorithm(self, config=None):

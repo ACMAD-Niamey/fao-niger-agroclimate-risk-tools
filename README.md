@@ -30,7 +30,7 @@ One rule runs through the design: **consume, don't compute.** Hazard and forecas
 | Date selection with fallback to the latest published period | Working |
 | Exposure rasters from land cover, cached, shareable through MinIO | Working |
 | Summary by admin region (CSV and GeoJSON) | Working, tested on OCHA admin level 1 |
-| QGIS panel (plugin) | Working: runs the workflow in the background, adds styled layers to the map, shows statistics and a region summary. Tested in headless QGIS 3.28 and with real data; not yet used in an interactive QGIS session |
+| QGIS panel (plugin) | Working: runs the workflow in the background, adds styled layers to the map, shows statistics and a region summary. Tested in headless QGIS 3.28 with real data, and used interactively on macOS by the project developer, who reported it working well. Not yet tried on Windows or Linux |
 | Optional language model description | Working, off by default. Needs a service address, key and model |
 | QGIS styles | Rendered and checked headless; not yet reviewed by a person in QGIS |
 | QGIS Processing algorithms | Score zonal vector layers; they do not run the raster workflow |
@@ -38,7 +38,7 @@ One rule runs through the design: **consume, don't compute.** Hazard and forecas
 
 ## Quick start in QGIS
 
-1. Build the plugin: `python3 scripts/build_qgis_plugin.py` (writes `dist/qgis/fao_niger_agroclimate.zip`).
+1. Download `fao_niger_agroclimate-<version>.zip` from the [Releases page](https://github.com/ACMAD-Niamey/fao-niger-agroclimate-risk-tools/releases) (do not unzip it). To build it yourself instead: `python3 scripts/build_qgis_plugin.py` writes `dist/qgis/fao_niger_agroclimate.zip`.
 2. In QGIS 3.28 or later: `Plugins > Manage and Install Plugins > Install from ZIP`, choose the zip, and enable the plugin.
 3. Check `Plugins > Manage and Install Plugins > Installed` shows version 0.3.2 or later, restart QGIS if you reinstalled over an older version, then open the panel: use the button in the message QGIS shows when it loads the plugin, the first entry of the *FAO Niger Agroclimate* group in the Processing Toolbox (*Agroclimate Risk panel*), the toolbar icon, or `Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel`.
 4. On the **Run** tab, pick a period and press **Run and add to map**. The first time, the panel offers **Prepare exposure, then run** (about 5 minutes, needs internet, once only) and carries on by itself. The **Results** tab shows the statistics; add a region layer there for a summary by region. The optional language model is set up in the **Settings** tab.
@@ -106,7 +106,7 @@ python3 scripts/build_qgis_plugin.py
 - [Agropastoral Drought Risk Map](docs/products/agropastoral-drought-risk-map.md): the product specification.
 - [Technical note](docs/technical-note.md): the full design across all seven products.
 - [QGIS integration](docs/qgis-integration.md)
-- [Changelog](CHANGELOG.md)
+- [Changelog](CHANGELOG.md) and [how to release](docs/releasing.md)
 
 ## Credits
 

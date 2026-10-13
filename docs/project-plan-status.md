@@ -33,13 +33,13 @@ Checked on real data on 2026-10-12: the current CDI (period 2026-09-11, used bec
 - **Water-point exposure is a constant** (score 1). No water-point source has been chosen.
 - **Vulnerability is not in the raster path.** The `0.5H + 0.3E + 0.2V` formula exists only in the vector scoring code.
 - **Resolution is coarse.** The CDI is about 11 km. The seasonal hazard is 1 degree, so its cells repeat on the 0.1 degree grid. Very small units such as Niamey (361 km² on the grid, 557 km² officially) are poorly represented.
-- **The panel has not been used in an interactive QGIS session.** It was tested by driving it in headless QGIS 3.28 with real data, and the styled map was rendered and checked. A person still needs to open it in QGIS and review the styles.
+- **The panel has had limited real-world use.** It was tested by driving it in headless QGIS 3.28 with real data, and the project developer has used it in QGIS 3.28 on macOS and reported it working well (2026-10-13). It has not been tried on Windows or Linux, and FAO staff have not used it yet.
 - **The language model description is untested against a real service.** The protocol and safeguards are tested with a fake service.
 
 ## Next steps
 
 1. Review thresholds, class mapping and weights with FAO and ACMAD; move them into one configuration file.
-2. Install the plugin in QGIS, try it with FAO staff, and adjust the styles and wording.
+2. Try the released plugin (0.3.2) with FAO staff and adjust the styles and wording from their feedback.
 3. Choose water-point and vulnerability sources.
 4. Raise the straight data edge in the CDI near 12.1 degrees east with ACMAD (see [data sources](data-sources.md)).
 5. Deliverable 2: use the `combined_drought_forecast_era5` product (five classes, wetter to drier) with a message library to draft advisories.

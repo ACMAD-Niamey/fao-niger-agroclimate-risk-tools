@@ -17,10 +17,23 @@ All ACMAD calls go to `https://ada.acmad.org`.
 | Publication lag | About one month. On 2026-10-12 the latest CDI was **2026-09-11** |
 | How to re-check | `GET /api/data_api/rs_data/get_available_datasets/`, then read `cdi.latest_year`, `latest_month`, `latest_dekad` |
 
+ACMAD's own WMS legend for the CDI layer (`GetLegendGraphic` on `africa_drought_datasets:grid_01dd_cdi_0911_view`, checked 2026-10-13) defines the classes as:
+
+| Value | ACMAD legend label |
+| --- | --- |
+| 0 | No Drought Conditions |
+| 1 to 4 | Watch: Rainfall Deficit |
+| above 4 to 7 | Warning: Soil Moisture Deficit |
+| 7 to 10 | Alert: Vegetation stress following rainfall / soil moisture deficit |
+
+The legend shows no entries for codes 11 to 14, and code 7 appears in both the Warning and Alert rules. **The tools currently bin the codes differently** (1-3 watch, 4-6 warning, 7-10 alert, 11-12 partial recovery, 13-14 full recovery; see [implementation notes](implementation.md#method)). They disagree with the legend at codes 4 and 7. The 11 to 14 recovery classes are not in the legend. See the open question in the [decision log](decisions.md#open-questions).
+
 Two behaviours matter:
 
 - **Always request `mask_nodata=false`.** With `true`, ACMAD turns code 0 ("no drought") into nodata, so every unaffected area drops out of the map. In September 2026 that hid 794 of 803 cropland cells, which simply had no drought.
 - **A 202 "queued" answer does not mean the file exists.** Missing dates (future dates, invalid dekads) also return 202, and the job status address it gives returns 404. Decide availability from `get_available_datasets`, not from the download response. The per-year `months` and `dekads` lists in that catalogue are unreliable (they omit dekad 21 even where files exist); only the `latest_*` and `start_year` fields are used.
+
+**Observed, to confirm with ACMAD.** In the 2026-09-11 file, the raw codes change abruptly along a straight north-south line near 12.1 degrees east, in the Zinder and Diffa area. At three latitudes sampled (13.55, 13.25 and 12.95 N) the codes jump from 0 (no drought) or 14 (full recovery) to 6 or 10 (warning or alert) between lon 11.9 and 12.1. The edge is in ACMAD's download, not introduced by the tools. It may be real, but a perfectly straight edge can also be a data seam, so treat the eastern signal with care until ACMAD confirms.
 
 `cdi_era5` is a separate CDI product built on ERA5. On 2026-10-12 its latest was 2026-08-11, three dekads behind `cdi`.
 

@@ -1,8 +1,8 @@
 # FAO Niger Agroclimate Risk Tools
 
-Tools that turn ACMAD drought products and open land cover into agropastoral drought risk maps for Niger, and summarise them by region. They are built for FAO Niger and national counterparts, to be run from the command line today and from QGIS later.
+Tools that turn ACMAD drought products and open land cover into agropastoral drought risk maps for Niger, and summarise them by region. They are built for FAO Niger and national counterparts, and run either from a QGIS panel or from the command line. Both use the same code.
 
-**Status: working prototype.** One product, the Agropastoral Drought Risk Map, runs end to end on real ACMAD and land cover data. Its thresholds and class mapping are placeholders awaiting review by FAO and ACMAD. The advisory, trigger and training deliverables are planned, not built. See [project plan and status](docs/project-plan-status.md).
+**Status: working prototype.** One product, the Agropastoral Drought Risk Map, runs end to end on real ACMAD and land cover data, from a QGIS panel or the command line. Its thresholds and class mapping are placeholders awaiting review by FAO and ACMAD. The advisory, trigger and training deliverables are planned, not built. See [project plan and status](docs/project-plan-status.md).
 
 ## How it works
 
@@ -30,13 +30,24 @@ One rule runs through the design: **consume, don't compute.** Hazard and forecas
 | Date selection with fallback to the latest published period | Working |
 | Exposure rasters from land cover, cached, shareable through MinIO | Working |
 | Summary by admin region (CSV and GeoJSON) | Working, tested on OCHA admin level 1 |
-| QGIS styles | Written; not yet reviewed visually in QGIS |
-| QGIS plugin | Scaffold. Its algorithms score zonal vector layers; they do not yet run the raster workflow |
+| QGIS panel (plugin) | Working: runs the workflow in the background, adds styled layers to the map, shows statistics and a region summary. Tested in headless QGIS 3.28 and with real data; not yet used in an interactive QGIS session |
+| Optional language model description | Working, off by default. Needs a service address, key and model |
+| QGIS styles | Rendered and checked headless; not yet reviewed by a person in QGIS |
+| QGIS Processing algorithms | Score zonal vector layers; they do not run the raster workflow |
 | Cropping-zone and pastoral maps, advisories, triggers | Planned |
 
-## Quick start
+## Quick start in QGIS
 
-You need Python 3.10 or later with GDAL bindings (`osgeo`). QGIS's Python has them; a standalone Python may need GDAL installed.
+1. Build the plugin: `python3 scripts/build_qgis_plugin.py` (writes `dist/qgis/fao_niger_agroclimate.zip`).
+2. In QGIS 3.28 or later: `Plugins > Manage and Install Plugins > Install from ZIP`, choose the zip, and enable the plugin.
+3. Check `Plugins > Manage and Install Plugins > Installed` shows version 0.3.0 or later, restart QGIS if you reinstalled over an older version, then click the plugin's toolbar icon (or `Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel`).
+4. On the **Run** tab, prepare exposure once (about 5 minutes, needs internet), pick a date and press **Run and add to map**. The **Results** tab shows the statistics; add a region layer there for a summary by region. The optional language model is set up in the **Settings** tab.
+
+See [using the panel](docs/using-the-panel.md) for what to choose, and [reading the risk maps](docs/reading-the-maps.md) for what the layers mean. The Processing Toolbox also has older vector tools; they do not build the map.
+
+## Quick start on the command line
+
+You need Python 3.9 or later with GDAL bindings (`osgeo`). QGIS's own Python has them (QGIS 3.28 ships Python 3.9); a standalone Python may need GDAL installed.
 
 ```bash
 # 1. Build exposure rasters once (about 5 minutes; land cover is cached)
@@ -78,18 +89,20 @@ python3 scripts/build_qgis_plugin.py
 
 | Path | Purpose |
 | --- | --- |
-| `src/agroclimate_core/` | The logic, with no QGIS dependency: scoring, raster pipeline, exposure, dates, admin summary, ACMAD clients, storage |
-| `scripts/` | Command-line entry points |
-| `qgis/` | Plugin scaffold, Processing algorithms and map styles |
+| `src/agroclimate_core/` | The logic, with no QGIS dependency, shared by the scripts and the plugin: workflow, scoring, raster pipeline, exposure, dates, statistics, ACMAD clients, storage, optional language model |
+| `scripts/` | Command-line entry points; thin shells over the shared workflow |
+| `qgis/plugin/` | The QGIS panel: interface, background tasks, map layers, settings |
+| `qgis/processing/`, `qgis/styles/` | Processing algorithms and map styles |
 | `tests/` | Unit tests |
 | `docs/` | Design, data sources, decisions, product specification |
 
 ## Documentation
 
 - [Project plan and status](docs/project-plan-status.md): the four deliverables and where each stands.
+- [Reading the risk maps](docs/reading-the-maps.md): what the values, classes and blank areas mean.
 - [Data sources](docs/data-sources.md): every external input, with what was verified and when.
 - [Decision log](docs/decisions.md): the choices behind the tools and which still need confirmation.
-- [Implementation notes](docs/implementation.md): modules, commands, outputs, formulas.
+- [Implementation notes](docs/implementation.md): modules, the plugin's design, commands, outputs, formulas.
 - [Agropastoral Drought Risk Map](docs/products/agropastoral-drought-risk-map.md): the product specification.
 - [Technical note](docs/technical-note.md): the full design across all seven products.
 - [QGIS integration](docs/qgis-integration.md)

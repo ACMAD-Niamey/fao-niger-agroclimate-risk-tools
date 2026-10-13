@@ -13,7 +13,12 @@ The development symlink used by developers is not the installation method for or
 
 ## Current scope
 
-The Processing algorithms here score a **vector** layer of zonal units. They do not yet run the raster workflow (`scripts/build_agropastoral_risk_raster.py`), which is the main product path. Wrapping the raster workflow is the next plugin step; see the [project plan](project-plan-status.md).
+The plugin has two parts.
+
+- **The Agroclimate Risk panel** runs the raster workflow, the main product path: it builds the map, adds styled layers, and shows statistics and a region summary. Its design and tests are in the [implementation notes](implementation.md#the-qgis-plugin), and `docs/reading-the-maps.md` explains the layers.
+- **The Processing algorithms** below score a **vector** layer of zonal units. They do not run the raster workflow.
+
+Open the panel from the toolbar icon or `Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel`. The menu also keeps the style actions for layers you add yourself. The CDI style action is only for the 0-3 hazard score (band 1 of `agropastoral_risk_stack.tif`), not the raw `cdi_niger.tif`, whose 0-14 codes it would misrender.
 
 ## Current QGIS Components
 
@@ -62,7 +67,7 @@ This packaged zip includes:
 The first algorithm is:
 
 ```text
-Agropastoral Drought Risk Map
+Score a zonal layer (vector, advanced)
 ```
 
 It expects a vector layer where each feature already represents the reporting unit or analysis unit to be scored. This can be an administrative unit, FAO intervention zone, livelihood zone, or precomputed zonal overlay.
@@ -160,7 +165,7 @@ CQL_FILTER = country_code=181
 
 ## Expected Workflow
 
-1. Open `Agropastoral Drought Risk Map`.
+1. Open `Score a zonal layer (vector, advanced)` (this is not the map tool; the map is built by the Agroclimate Risk panel).
 2. Set `Zonal boundary source` to `Fetch Niger boundary from ACMAD WFS` for a boundary-only test.
 3. Keep `ACMAD GeoServer/WFS URL` as `https://ada.acmad.org/geoserver`, unless testing another GeoServer.
 4. Leave the field selectors blank if the boundary layer has no CDI or exposure score fields.

@@ -18,6 +18,10 @@ Choices that shape the tools, with the reason. Newest at the bottom. "Confirm" m
 | D12 | 2026-10 | Risk score is an additive weighted score: `0.6H + 0.4E`, or `0.5H + 0.3E + 0.2V` when vulnerability exists. `Hazard x Exposure x Vulnerability` is the concept, not the arithmetic. | A weighted sum is transparent and keeps a zero in one factor from erasing the others. | Confirm with FAO |
 | D13 | 2026-10 | Map colours: ColorBrewer yellow-orange-red, darker with severity, grey for "no hazard", no red-green pairs. Class labels state the real breaks. | Ordered data needs ordered lightness; the ramp is colour-blind safe and survives greyscale printing. | Review in QGIS |
 | D14 | 2026-10 | Summarise by admin unit using OCHA COD boundaries; a cell belongs to the unit holding its centre. | The official UN set with a suitable licence. Cell-centre assignment is simple but undercounts very small units (Niamey). | Agreed |
+| D15 | 2026-10 | The end-to-end run lives in `agroclimate_core.workflow`. The script and the QGIS plugin are thin shells over it. | One implementation cannot drift between the command line and QGIS, and the script stays usable on its own. | Agreed |
+| D16 | 2026-10 | The plugin runs workflows in a background `QgsTask`, with progress and cancellation, and adds results to the map itself. | Runs take seconds to minutes; the interface must stay responsive. | Agreed |
+| D17 | 2026-10 | The language model is optional and off by default. It only phrases results, receives a fixed allow-list of summary figures after the user confirms the host, and every reply is marked as a draft for expert review. The key stays in memory unless the user chooses to remember it. | Keeps decisions with the rules and experts, and keeps data and credentials under the user's control. | Agreed |
+| D18 | 2026-10 | Support Python 3.9. | QGIS 3.28 LTR bundles Python 3.9 and GDAL 3.3, and the plugin runs inside it. | Agreed |
 
 ## Open questions
 
@@ -26,3 +30,4 @@ Choices that shape the tools, with the reason. Newest at the bottom. "Confirm" m
 3. Which water-point and vulnerability layers are acceptable?
 4. Which format does FAO's Climate Intelligence-Agro system expect for outputs?
 5. Is sparse vegetation (WorldCover 60) part of rangeland in the north?
+6. **CDI code bins.** ACMAD's WMS legend gives watch = 1 to 4, warning = 5 to 7, alert = 7 to 10, no drought = 0, and lists nothing for 11 to 14. The tools bin 1-3 / 4-6 / 7-10 and treat 11-12 as partial and 13-14 as full recovery. Which is authoritative for codes 4 and 7, and what do 11 to 14 mean? (Raised 2026-10-13; the tools have not been changed.)

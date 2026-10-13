@@ -1,6 +1,6 @@
 # Project Plan and Status
 
-*Last reviewed: 2026-10-12.*
+*Last reviewed: 2026-10-13.*
 
 This page says what the project has to deliver, how far each part has come, and what is next. It is organised around the four deliverables in the terms of reference. The design principle is [consume, don't compute](decisions.md): use ACMAD's published products as they are and add the overlay with land cover, not new indicators.
 
@@ -23,6 +23,7 @@ The Agropastoral Drought Risk Map is the first product. The prototype does the f
 4. Scores risk as `0.6 x hazard + 0.4 x exposure`, in four classes, only over cells with cropland or rangeland.
 5. Writes GeoTIFFs for QGIS and a `run_metadata.json` recording what the map was built from.
 6. Summarises risk by admin region: class shares, mean score, worst class, and cropland and rangeland hectares in high-risk cells.
+7. Runs from a **QGIS panel**: runs in the background, adds the styled layers to the map, shows class statistics and a region table, and can optionally ask a language model to describe the results. The command-line script runs the same workflow.
 
 Checked on real data on 2026-10-12: the current CDI (period 2026-09-11, used because October is not yet published) and the seasonal outlook (SON 2026), with exposure for all 10,376 cells in Niger and OCHA admin level 1.
 
@@ -32,15 +33,15 @@ Checked on real data on 2026-10-12: the current CDI (period 2026-09-11, used bec
 - **Water-point exposure is a constant** (score 1). No water-point source has been chosen.
 - **Vulnerability is not in the raster path.** The `0.5H + 0.3E + 0.2V` formula exists only in the vector scoring code.
 - **Resolution is coarse.** The CDI is about 11 km. The seasonal hazard is 1 degree, so its cells repeat on the 0.1 degree grid. Very small units such as Niamey (361 km² on the grid, 557 km² officially) are poorly represented.
-- **The maps have not been reviewed in QGIS.** The styles are written and tested for ordering and labels only.
-- **The QGIS plugin does not run this workflow yet.** It scores zonal vector layers and applies styles.
+- **The panel has not been used in an interactive QGIS session.** It was tested by driving it in headless QGIS 3.28 with real data, and the styled map was rendered and checked. A person still needs to open it in QGIS and review the styles.
+- **The language model description is untested against a real service.** The protocol and safeguards are tested with a fake service.
 
 ## Next steps
 
 1. Review thresholds, class mapping and weights with FAO and ACMAD; move them into one configuration file.
-2. Open the outputs in QGIS and adjust the styles.
+2. Install the plugin in QGIS, try it with FAO staff, and adjust the styles and wording.
 3. Choose water-point and vulnerability sources.
-4. Wrap the raster workflow in a QGIS Processing algorithm, then a simple plugin dialog.
+4. Raise the straight data edge in the CDI near 12.1 degrees east with ACMAD (see [data sources](data-sources.md)).
 5. Deliverable 2: use the `combined_drought_forecast_era5` product (five classes, wetter to drier) with a message library to draft advisories.
 6. Deliverable 4: define trigger rules over CDI, combined hazard and exposure, and test them on past seasons.
 7. Deliverable 3: write the user guide while the workflow settles.

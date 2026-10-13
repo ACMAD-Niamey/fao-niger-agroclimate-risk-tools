@@ -1,6 +1,6 @@
 # Implementation Notes
 
-*Last reviewed: 2026-10-12.* For developers. The overview is in the [README](../README.md); what is decided and what is still a placeholder is in the [decision log](decisions.md).
+*Last reviewed: 2026-10-13.* For developers. The overview is in the [README](../README.md); what is decided and what is still a placeholder is in the [decision log](decisions.md).
 
 ## Modules
 
@@ -9,7 +9,14 @@ All logic lives in `src/agroclimate_core/` and has no QGIS dependency, so script
 | Module | Purpose |
 | --- | --- |
 | `risk.py` | Scoring of single records: hazard, exposure, risk score, class. Used by the vector (zonal) path |
+| `workflow.py` | **The end-to-end risk run**: `RunConfig` in, `RunResult` out. Used by the script and the plugin |
+| `hazard_selection.py` | Chooses the CDI dekad or season to use from what ACMAD has published |
 | `raster_pipeline.py` | Clips the hazard to Niger, aligns exposure, scores risk, writes the GeoTIFFs |
+| `exposure_workflow.py`, `grid.py` | Builds exposure for Niger from land cover, on a grid derived from the boundary |
+| `risk_statistics.py` | Area and share of each risk class, for the results panel |
+| `period_choices.py` | The published CDI dekads and seasons to offer in the period drop-down; never raises, reports problems in plain words |
+| `llm.py` | Optional language model description (OpenAI-style protocol); builds the allow-listed payload |
+| `cancellation.py` | The exception a cancelled run raises |
 | `exposure.py` | WorldCover to class fractions per cell, bins fractions to 0-3 scores, fetches and caches tiles |
 | `periods.py` | Dekad and season arithmetic; chooses a period from what is published, with a fallback limit |
 | `acmad_availability.py` | Reads ACMAD's availability and dataset catalogues |
@@ -22,11 +29,47 @@ All logic lives in `src/agroclimate_core/` and has no QGIS dependency, so script
 
 Entry points are in `scripts/`; QGIS code is in `qgis/`.
 
+## The QGIS plugin
+
+The panel is a thin shell. It holds no workflow logic; it calls the same `run_risk_workflow` and `run_exposure_preparation` the scripts use.
+
+| Module (`qgis/plugin/`) | Role |
+| --- | --- |
+| `plugin.py` | Menu and toolbar action; builds the panel on first use; the Processing provider and style actions |
+| `dock.py` | The panel (Run, Results, Settings tabs). Reads widgets into configs and shows results. Runs nothing |
+| `controller.py` | Wires the panel to background tasks, the map, the statistics and the language model |
+| `tasks.py` | `QgsTask` wrapper: runs a workflow in a background thread with progress and cancellation |
+| `layers.py` | Adds a run's rasters to the project as a group and styles them; replaces the group on re-run |
+| `settings.py` | Remembered options in the QGIS profile; the language model key |
+| `styles.py`, `widgets.py` | Style lookup and colours (the chart reads the same `.qml` files as the map); the bar chart |
+
+How it behaves:
+
+- **Background work.** Workflows run in a `QgsTask`, so QGIS stays responsive; the task reports progress, can be cancelled between steps, and hands its result to the main thread, which adds layers and fills the tables. The work thread never touches the project or widgets.
+- **Layers added.** `Risk class`, `Risk score` and a hazard layer, in a group named after the period actually used. For the CDI the hazard layer is band 1 of the stack (the 0-3 score the CDI style is written for), not the raw `cdi_niger.tif`, whose 0-14 codes that style would misrender. Only the class layer is visible by default.
+- **Statistics.** Class areas and shares for the whole map, and an optional region summary for any polygon layer the user picks (it is exported to GeoJSON, then summarised with the same `summarize_by_admin`).
+- **Language model, optional and off by default.** Needs a service address, key and model. Before anything is sent the user is shown the host and asked to confirm. The payload is a fixed allow-list built in `llm.build_run_payload` (summary figures only: no paths, rasters or credentials). The reply always ends with a "draft, expert must review" line added by the tool, not by the model. The key stays in memory unless the user ticks "remember", in which case it is stored unencrypted in the QGIS profile.
+- **Packaging.** `scripts/build_qgis_plugin.py` copies every module in `qgis/plugin/`, the Processing algorithms, the styles and `agroclimate_core/` into one folder; the plugin imports the core package relatively (`from .agroclimate_core...`).
+- **Python version.** QGIS 3.28 LTR ships Python 3.9 and GDAL 3.3, so all code runs on 3.9. The project declares `>=3.9`.
+
+### Testing the plugin
+
+The plugin tests build the real zip layout, load it into a headless QGIS and drive the panel the way a user would, with fake network services. They run only under QGIS's own Python, from a directory that does not contain this repository's `qgis/` folder (it would shadow QGIS's package). Elsewhere they skip.
+
+```bash
+A=/Applications/QGIS-LTR.app/Contents
+export QT_QPA_PLATFORM=offscreen PROJ_LIB=$A/Resources/proj GDAL_DATA=$A/Resources/gdal
+export PYTHONPATH=<repo>/src:<repo>/tests:$A/Resources/python
+cd /tmp && $A/MacOS/bin/python3 -m unittest discover -s <repo>/tests -t <repo>/tests
+```
+
+`PROJ_LIB` and `GDAL_DATA` matter: without them QGIS's GDAL cannot find its projection database outside the app. Do not export them when running the system Python tests.
+
 ## Commands
 
 | Script | Does |
 | --- | --- |
-| `build_agropastoral_risk_raster.py` | Builds a risk map for a date |
+| `build_agropastoral_risk_raster.py` | Builds a risk map for a date (a thin shell over `workflow.run_risk_workflow`) |
 | `prepare_exposure_rasters.py` | Builds cultivated and rangeland exposure on a template grid |
 | `summarize_by_admin.py` | Summarises a risk map by admin unit |
 | `upload_exposure_to_minio.py` | Uploads prepared layers to MinIO (`--dry-run` lists first) |
@@ -103,7 +146,7 @@ Classes: below 1.0 low; 1.0 to below 1.7 moderate; 1.7 to below 2.4 high; 2.4 an
 PYTHONPATH=src python3 -m unittest discover -s tests
 ```
 
-90 tests passed on 2026-10-12. Several need the GDAL Python bindings and error without them, so run the tests with a Python that has `osgeo`. The tests use small synthetic rasters; the live ACMAD, WorldCover and MinIO services are not called in tests.
+On 2026-10-13: 146 tests pass under QGIS's Python (3 skipped, the optional `minio` package is absent there) and 121 pass under a system Python with GDAL (7 QGIS-only tests skip). Several tests need the GDAL Python bindings and error without them, so use a Python that has `osgeo`. The tests use small synthetic rasters and fake services; the live ACMAD, WorldCover and MinIO services are not called.
 
 Syntax check without writing bytecode:
 

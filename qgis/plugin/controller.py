@@ -68,6 +68,29 @@ class Prompter:
     def warn(self, title: str, text: str) -> None:
         QMessageBox.warning(self._parent, title, text)
 
+    def choose_exposure_action(self) -> str:
+        """What to do when no exposure rasters exist: ``prepare``, ``test`` or ``cancel``.
+
+        Offering the next step as a button, rather than a Yes/No question that tells the user to
+        go and find one, is what makes the first run work without reading any documentation.
+        """
+
+        box = QMessageBox(self._parent)
+        box.setWindowTitle("Exposure data needed")
+        box.setText("The risk map needs exposure data, which says where there is cropland and rangeland. None was found in the exposure folder.")
+        box.setInformativeText(
+            "Prepare it now: it downloads land cover for Niger (about 430 MB the first time, around 5 minutes), "
+            "and the run then continues by itself. You only do this once.\n\n"
+            "Or run now with constant placeholder exposure. That result is only a test."
+        )
+        prepare = box.addButton("Prepare exposure, then run", QMessageBox.AcceptRole)
+        test = box.addButton("Run as a test anyway", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(prepare)
+        box.exec_()
+        clicked = box.clickedButton()
+        return "prepare" if clicked is prepare else "test" if clicked is test else "cancel"
+
 
 def _default_submit(task: WorkflowTask) -> None:
     QgsApplication.taskManager().addTask(task)
@@ -126,6 +149,7 @@ class RiskPanelController:
         self._task: Optional[WorkflowTask] = None
         self._period_task: Optional[WorkflowTask] = None
         self._disposed = False
+        self._run_after_exposure = False  # set when the user chose "prepare exposure, then run"
 
         self._log_handler = MessageLogHandler()
         self._log_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
@@ -174,6 +198,7 @@ class RiskPanelController:
 
     @_ignore_after_dispose
     def _on_failure(self, exc: Exception) -> None:
+        self._run_after_exposure = False  # a failed preparation must not start the run
         text = plain_error(exc)
         self.dock.set_running(False, f"Failed: {text}")
         self.dock.append_log(f"Failed: {text}")
@@ -181,6 +206,7 @@ class RiskPanelController:
 
     @_ignore_after_dispose
     def _on_cancelled(self) -> None:
+        self._run_after_exposure = False
         self.dock.set_running(False, "Cancelled.")
         self._message("The run was cancelled.", Qgis.Warning)
 
@@ -228,12 +254,13 @@ class RiskPanelController:
             self.prompter.warn("Cannot run", str(exc))
             return
         if config.cultivated_raster is None and config.rangeland_raster is None:
-            proceed = self.prompter.confirm(
-                "No exposure data",
-                "No prepared exposure rasters were found, so the run would use constant placeholder exposure and the "
-                "result would only be a test. Run anyway?\n\nChoose No to go back and prepare exposure first.",
-            )
-            if not proceed:
+            choice = self.prompter.choose_exposure_action()
+            if choice == "prepare":
+                # The dialog already explained the download, so do not ask a second time.
+                self._run_after_exposure = True
+                self.on_prepare_exposure_requested(self.dock.collect_exposure_config(), confirmed=True)
+                return
+            if choice != "test":
                 return
         self.settings.output_root = config.output_root
         self.settings.strict_dates = config.strict_dates
@@ -265,8 +292,8 @@ class RiskPanelController:
         self._message(f"Added '{group_name_for(result)}' to the map{suffix}.", level)
 
     # ------------------------------------------------------------------ exposure
-    def on_prepare_exposure_requested(self, config: ExposureConfig) -> None:
-        if not self.prompter.confirm(
+    def on_prepare_exposure_requested(self, config: ExposureConfig, confirmed: bool = False) -> None:
+        if not confirmed and not self.prompter.confirm(
             "Prepare exposure",
             "This downloads ESA WorldCover land cover for Niger (about 430 MB the first time) and takes around 5 "
             "minutes. It only needs doing once. Continue?",
@@ -285,6 +312,10 @@ class RiskPanelController:
         self.dock.exposure_widget.setFilePath(str(config.output_dir))
         self.dock.refresh_exposure_status()
         self._message(f"Exposure rasters written to {config.output_dir}.", Qgis.Success)
+        if self._run_after_exposure:
+            self._run_after_exposure = False
+            # Re-read the panel: it now finds the new rasters, so this run is a real one, not a test.
+            self.on_run_requested(self.dock.collect_run_config())
 
     # ------------------------------------------------------------ region summary
     def _export_region_layer(self, layer: QgsVectorLayer, target: Path) -> Path:

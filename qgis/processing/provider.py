@@ -13,6 +13,7 @@ except ImportError:
 
 from .agropastoral_drought_risk import AgropastoralDroughtRiskAlgorithm
 from .fetch_acmad_boundary import FetchAcmadBoundaryAlgorithm
+from .open_risk_panel import OpenRiskPanelAlgorithm
 
 
 class FaoNigerAgroclimateProvider(QgsProcessingProvider):
@@ -40,5 +41,6 @@ class FaoNigerAgroclimateProvider(QgsProcessingProvider):
         return QIcon()
 
     def loadAlgorithms(self):
+        self.addAlgorithm(OpenRiskPanelAlgorithm())
         self.addAlgorithm(FetchAcmadBoundaryAlgorithm())
         self.addAlgorithm(AgropastoralDroughtRiskAlgorithm())

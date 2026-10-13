@@ -17,6 +17,12 @@ from test_workflow import fake_services
 STYLES_DIR = qgis_support.REPO_ROOT / "qgis" / "styles"
 
 
+def Qt_MatchExactly():
+    from qgis.PyQt.QtCore import Qt
+
+    return Qt.MatchExactly
+
+
 def core(module: str):
     """The core package as shipped inside the plugin.
 
@@ -65,7 +71,8 @@ class FakeIface:
         self.toolbar.append(action)
 
     def removeToolBarIcon(self, action):
-        self.toolbar.remove(action)
+        if action in self.toolbar:  # QGIS also tolerates removing an icon that was never added
+            self.toolbar.remove(action)
 
     def addDockWidget(self, _area, dock):
         self.docks.append(dock)
@@ -77,6 +84,11 @@ class FakeIface:
 class FakePrompter:
     def __init__(self, answer: bool = True):
         self.answer, self.confirmations, self.warnings = answer, [], []
+        self.exposure_choice, self.exposure_prompts = "test", 0  # "prepare", "test" or "cancel"
+
+    def choose_exposure_action(self):
+        self.exposure_prompts += 1
+        return self.exposure_choice
 
     def confirm(self, title, text):
         self.confirmations.append((title, text))
@@ -327,17 +339,52 @@ class RunFlowTests(PanelTestCase):
         self.assertIn("Fetching the Niger boundary", log)
         self.assertIn("Done", log)
 
-    def test_without_exposure_the_user_is_asked_first(self):
-        self.prompter.answer = False
+    def test_without_exposure_the_user_is_asked_what_to_do(self):
+        self.prompter.exposure_choice = "cancel"
         self.run_current()
-        self.assertEqual(len(self.prompter.confirmations), 1)
-        self.assertIn("placeholder", self.prompter.confirmations[0][1])
-        self.assertEqual(self.calls, [])  # declined: nothing ran
+        self.assertEqual(self.prompter.exposure_prompts, 1)
+        self.assertEqual(self.calls, [])  # cancelled: nothing ran
 
-        self.prompter.answer = True
+        self.prompter.exposure_choice = "test"
         self.run_current()
         self.assertTrue(any(c["kind"] == "cdi" for c in self.calls))
         self.assertIn("test", self.dock.warning_label.text())  # no mask: the results say it is a test
+
+    def test_choosing_prepare_prepares_exposure_and_then_runs_by_itself(self):
+        import numpy as np
+        from osgeo import gdal
+
+        ExposureConfig = core("exposure_workflow").ExposureConfig
+        folder = self.root / "exposure"
+        landcover = write_raster(
+            self.root / "wc.tif", np.full((80, 80), 40), origin=(0.0, 4.0), cell=0.05, nodata=0, dtype=gdal.GDT_Byte
+        )
+        self.dock.exposure_widget.setFilePath(str(folder))
+        self.dock.collect_exposure_config = lambda: ExposureConfig(output_dir=folder, cache_dir=None, landcover=[landcover])
+        self.prompter.exposure_choice = "prepare"
+
+        self.run_current()
+
+        self.assertTrue((folder / "cultivated_exposure.tif").is_file())  # prepared...
+        self.assertEqual(self.prompter.confirmations, [])  # ...without asking about the download a second time
+        self.assertTrue(any(c["kind"] == "cdi" for c in self.calls))  # ...and then the run went ahead
+        self.assertEqual(self.dock.status_label.text(), "Done.")
+        self.assertTrue(self.controller.result.mask_applied)  # with real exposure, so not a test run
+        self.assertEqual(len(self.dock.class_table.findItems("Low", Qt_MatchExactly())), 1)
+
+    def test_a_failed_preparation_does_not_start_the_run(self):
+        ExposureConfig = core("exposure_workflow").ExposureConfig
+
+        def broken_boundary(path, url):
+            raise ConnectionError("offline")
+
+        self.services.download_boundary = broken_boundary
+        self.dock.collect_exposure_config = lambda: ExposureConfig(output_dir=self.root / "exposure", cache_dir=None)
+        self.prompter.exposure_choice = "prepare"
+        self.run_current()
+        self.assertIn("Failed", self.dock.status_label.text())
+        self.assertEqual(self.calls, [])  # the hazard was never downloaded
+        self.assertTrue(self.dock.run_button.isEnabled())
 
     def test_invalid_settings_are_explained_without_running(self):
         RunConfig = core("workflow").RunConfig
@@ -390,6 +437,13 @@ class ExposureFlowTests(PanelTestCase):
         self.assertIn("430 MB", self.prompter.confirmations[0][1])
         self.assertIn("Exposure rasters found", self.dock.exposure_status.text())
         self.assertEqual(self.settings.exposure_dir, self.root / "exposure")
+
+    def test_the_status_text_fits_its_label(self):
+        """The long help sentence was clipped in a real QGIS window; the status must stay short."""
+
+        self.dock.refresh_exposure_status()
+        self.assertLess(len(self.dock.exposure_status.text()), 110)
+        self.assertIn("cultivated_exposure.tif", self.dock.exposure_status.toolTip())
 
     def test_declining_the_download_prepares_nothing(self):
         ExposureConfig = core("exposure_workflow").ExposureConfig

@@ -418,10 +418,11 @@ class RiskDock(QDockWidget):
         if cultivated is not None:
             self.exposure_status.setText("Exposure rasters found. Runs will map only cropland and rangeland.")
         else:
-            self.exposure_status.setText(
-                "No exposure rasters in this folder. Prepare them once from land cover, or point to a folder that has "
-                f"{CULTIVATED_SCORE_FILE} and {RANGELAND_SCORE_FILE}."
-            )
+            self.exposure_status.setText("No exposure rasters in this folder yet. Use the button below to prepare them.")
+        self.exposure_status.setToolTip(
+            f"A usable folder holds {CULTIVATED_SCORE_FILE} and {RANGELAND_SCORE_FILE}. "
+            "Prepare them once from land cover, or point to a folder that already has them."
+        )
 
     def refresh_llm_availability(self, llm: LlmSettings) -> None:
         self.interpret_button.setEnabled(llm.is_configured and getattr(self, "_has_result", False))

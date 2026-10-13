@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
+import traceback
 from pathlib import Path
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
-from qgis.core import Qgis, QgsApplication
+from qgis.PyQt.QtWidgets import QAction, QPushButton
+from qgis.core import Qgis, QgsApplication, QgsMessageLog, QgsSettings
 
 from .controller import RiskPanelController
 from .processing.provider import FaoNigerAgroclimateProvider
+
+
+def plugin_version(plugin_dir: Path) -> str:
+    """The version in metadata.txt, so the announcement is shown once per release."""
+
+    try:
+        for line in (Path(plugin_dir) / "metadata.txt").read_text(encoding="utf-8").splitlines():
+            if line.startswith("version="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return "unknown"
 
 
 class FaoNigerAgroclimatePlugin:
@@ -24,22 +37,59 @@ class FaoNigerAgroclimatePlugin:
         ("Apply Combined Hazard Style", "combined_hazard.qml"),
     )
 
-    def __init__(self, iface):
+    ANNOUNCED_KEY = "FaoNigerAgroclimate/announced_version"
+
+    def __init__(self, iface, settings=None):
         self.iface = iface
+        self._settings = settings
         self.provider = None
         self.actions = []
         self.panel_action = None
         self.controller = None
 
     def initGui(self):
+        """Load each part separately: one failing step must not silently take the others down.
+
+        A failure is shown in the message bar and the log, because a user who cannot find the
+        panel otherwise has no way to learn that something went wrong while loading.
+        """
+
+        for step in (self._register_provider, self._add_panel_action, self._add_style_actions, self._announce_panel):
+            try:
+                step()
+            except Exception as exc:
+                QgsMessageLog.logMessage(f"{step.__name__} failed:\n{traceback.format_exc()}", self.MENU_NAME, Qgis.Critical)
+                self.iface.messageBar().pushMessage(
+                    self.MENU_NAME,
+                    f"Part of the plugin could not load ({step.__name__.strip('_').replace('_', ' ')}): {exc}. "
+                    "See the Log Messages panel for details.",
+                    level=Qgis.Critical,
+                    duration=0,
+                )
+
+    def _register_provider(self):
         existing_provider = QgsApplication.processingRegistry().providerById("fao_niger_agroclimate")
         if existing_provider is not None:
             QgsApplication.processingRegistry().removeProvider(existing_provider)
-
         self.provider = FaoNigerAgroclimateProvider()
         QgsApplication.processingRegistry().addProvider(self.provider)
-        self._add_panel_action()
-        self._add_style_actions()
+
+    def _announce_panel(self):
+        """Tell the user once per version where the main tool is, with a button that opens it."""
+
+        settings = self._settings or QgsSettings()
+        version = plugin_version(Path(__file__).resolve().parent)
+        if settings.value(self.ANNOUNCED_KEY, "", type=str) == version:
+            return
+        settings.setValue(self.ANNOUNCED_KEY, version)
+        bar = self.iface.messageBar()
+        item = bar.createMessage(
+            self.MENU_NAME, "The risk map tool is ready. It builds the map, adds it to QGIS and shows the statistics."
+        )
+        button = QPushButton("Open the risk panel")
+        button.clicked.connect(self.show_panel)
+        item.layout().addWidget(button)
+        bar.pushWidget(item, Qgis.Info, 30)
 
     def _add_panel_action(self):
         icon = QIcon(str(Path(__file__).resolve().parent / "icon.svg"))

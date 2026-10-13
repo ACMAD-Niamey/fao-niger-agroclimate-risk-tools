@@ -87,8 +87,9 @@ class AgropastoralDroughtRiskAlgorithm(QgsProcessingAlgorithm):
             "ADVANCED. This scores a vector layer of zones (regions, intervention areas, a precomputed overlay) and "
             "writes a vector layer with hazard_score, exposure_score, risk_score and risk_class. It does NOT download "
             "ACMAD data and does NOT produce a raster. "
-            "To build the risk MAP (rasters added to the map, styled, with statistics), use the Agroclimate Risk "
-            "panel instead: toolbar icon, or Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel. "
+            "To build the risk MAP (rasters added to the map, styled, with statistics), use the tool "
+            "'Agroclimate Risk panel (open this to build the risk map)' in this same group, the toolbar icon, or "
+            "Plugins > FAO Niger Agroclimate > Open Agroclimate Risk Panel. "
             "Use this algorithm only if you already have a zonal layer with CDI and exposure fields."
         )
 

@@ -13,15 +13,33 @@ from __future__ import annotations
 
 import logging
 import math
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 import numpy as np
 from osgeo import gdal, ogr
 
+from .cancellation import WorkflowCancelled
+
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[float, str], None]
+CancelCheck = Callable[[], bool]
+
+
+def _scaled(progress: Optional[ProgressCallback], low: float, high: float) -> Optional[ProgressCallback]:
+    """Map a 0-100 progress callback onto the ``low``-``high`` slice of a larger one."""
+
+    if progress is None:
+        return None
+    return lambda percent, message: progress(low + (high - low) * percent / 100.0, message)
+
+
+def _check(is_cancelled: Optional[CancelCheck]) -> None:
+    if is_cancelled is not None and is_cancelled():
+        raise WorkflowCancelled("The exposure preparation was cancelled.")
 
 WORLDCOVER_BASE_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 WORLDCOVER_TILE_DEGREES = 3
@@ -123,6 +141,8 @@ def aggregate_class_fractions(
     template_path: str | Path,
     class_groups: Mapping[str, Sequence[int]],
     cell_mask: np.ndarray | None = None,
+    progress: Optional[ProgressCallback] = None,
+    is_cancelled: Optional[CancelCheck] = None,
 ) -> dict[str, np.ndarray]:
     """Share of valid source pixels in each class group, per template cell.
 
@@ -147,7 +167,10 @@ def aggregate_class_fractions(
     group_counts = {name: np.zeros((t_rows, t_cols), dtype="float64") for name in class_groups}
     valid_counts = np.zeros((t_rows, t_cols), dtype="float64")
 
-    for source_path in source_paths:
+    for source_index, source_path in enumerate(source_paths):
+        _check(is_cancelled)
+        if progress is not None:
+            progress(100.0 * source_index / max(1, len(source_paths)), f"Aggregating land cover {source_index + 1} of {len(source_paths)}")
         source = gdal.Open(str(source_path))
         if source is None:
             raise RuntimeError(f"Could not open source raster: {source_path}")
@@ -178,6 +201,7 @@ def aggregate_class_fractions(
         )
 
         for row in range(first_row, last_row):
+            _check(is_cancelled)
             row_first, row_last = first_col, last_col
             if cell_mask is not None:
                 needed = np.flatnonzero(cell_mask[row, first_col:last_col])
@@ -272,6 +296,8 @@ def fetch_worldcover_tiles(
     cell_mask: np.ndarray | None = None,
     workers: int = 4,
     fetch: Callable[[str, Path, tuple[float, float, float, float]], Path] = cache_raster_window,
+    progress: Optional[ProgressCallback] = None,
+    is_cancelled: Optional[CancelCheck] = None,
 ) -> list[Path]:
     """Download (in parallel) only the WorldCover windows the masked cells need.
 
@@ -315,9 +341,19 @@ def fetch_worldcover_tiles(
         jobs.append((tile.url, Path(cache_dir) / f"worldcover_2021_{tile.name}_{stamp}.tif", window))
 
     logger.info("Fetching %d WorldCover windows with %d workers", len(jobs), workers)
+    def run_job(job: tuple[str, Path, tuple[float, float, float, float]]) -> Path:
+        _check(is_cancelled)  # a queued download is skipped once the user has cancelled
+        return fetch(job[0], job[1], job[2])
+
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        # list() so an exception in any worker is raised here rather than lost.
-        return list(pool.map(lambda job: fetch(job[0], job[1], job[2]), jobs))
+        futures = [pool.submit(run_job, job) for job in jobs]
+        done = 0
+        for future in as_completed(futures):
+            future.result()  # re-raises a worker's exception here rather than losing it
+            done += 1
+            if progress is not None:
+                progress(100.0 * done / len(futures), f"Downloaded land cover {done} of {len(futures)}")
+        return [future.result() for future in futures]
 
 
 def _write_float_raster(path: Path, template: gdal.Dataset, array: np.ndarray, *, description: str, nodata: float) -> None:
@@ -353,6 +389,8 @@ def prepare_exposure_rasters(
     cache_dir: str | Path | None = None,
     workers: int = 4,
     nodata: float = -9999.0,
+    progress: Optional[ProgressCallback] = None,
+    is_cancelled: Optional[CancelCheck] = None,
 ) -> dict[str, Path]:
     """Write ``<group>_fraction.tif`` and ``<group>_exposure.tif`` for each class group.
 
@@ -375,7 +413,12 @@ def prepare_exposure_rasters(
     if source_paths is None:
         if cache_dir is not None:
             source_paths = fetch_worldcover_tiles(
-                template_path=template_path, cache_dir=cache_dir, cell_mask=cell_mask, workers=workers
+                template_path=template_path,
+                cache_dir=cache_dir,
+                cell_mask=cell_mask,
+                workers=workers,
+                progress=_scaled(progress, 0, 55),
+                is_cancelled=is_cancelled,
             )
         else:
             gt = template.GetGeoTransform()
@@ -387,7 +430,14 @@ def prepare_exposure_rasters(
             )
             source_paths = worldcover_tile_urls(bounds)
 
-    fractions = aggregate_class_fractions(source_paths, template_path, class_groups, cell_mask=cell_mask)
+    fractions = aggregate_class_fractions(
+        source_paths,
+        template_path,
+        class_groups,
+        cell_mask=cell_mask,
+        progress=_scaled(progress, 55, 95),
+        is_cancelled=is_cancelled,
+    )
     output_dir = Path(output_dir)
     outputs: dict[str, Path] = {}
     for name, fraction in fractions.items():

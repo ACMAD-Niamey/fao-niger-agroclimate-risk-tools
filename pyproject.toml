@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "fao-niger-agroclimate-risk-tools"
 version = "0.1.0"
 description = "Agroclimatic risk mapping tools for FAO Niger."
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
     "numpy",
     "requests",

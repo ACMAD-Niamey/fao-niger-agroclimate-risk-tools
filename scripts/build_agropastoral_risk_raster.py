@@ -1,67 +1,39 @@
 #!/usr/bin/env python3
-"""Build an end-to-end agropastoral drought risk raster for QGIS."""
+"""Build an end-to-end agropastoral drought risk raster for QGIS.
+
+This is a thin command-line shell. The workflow itself lives in
+``agroclimate_core.workflow`` and is shared with the QGIS plugin.
+"""
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
-
-import requests
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from agroclimate_core.acmad_boundaries import build_wfs_getfeature_url, niger_boundary_request
-from agroclimate_core.acmad_download import DEFAULT_ACMAD_API_BASE_URL, download_acmad_raster
-from agroclimate_core.acmad_availability import (
-    combined_product_seasons,
-    fetch_available_datasets,
-    fetch_dataset_catalog,
-    latest_dekad_range,
-)
-from agroclimate_core.acmad_download import AcmadProductNotFound, download_combined_product
-from agroclimate_core.periods import (
-    DekadPeriod,
-    PeriodUnavailableError,
-    SeasonPeriod,
-    resolve_dekad,
-    resolve_season,
-)
-from agroclimate_core.raster_pipeline import ExposureDefaults, build_agropastoral_risk_rasters, risk_class_labels
-from agroclimate_core.run_metadata import write_run_metadata
+from agroclimate_core.acmad_download import AcmadProductNotFound, DEFAULT_ACMAD_API_BASE_URL
+from agroclimate_core.hazard_selection import ConfigError, dekad_from_day
+from agroclimate_core.periods import PeriodUnavailableError
+from agroclimate_core.raster_pipeline import ExposureDefaults, risk_class_labels
+from agroclimate_core.workflow import DEFAULT_GEOSERVER_URL, RunConfig, run_risk_workflow
 
 logger = logging.getLogger("build_agropastoral_risk_raster")
 
 
-def dekad_from_day(day: int) -> int:
-    if day <= 10:
-        return 1
-    if day <= 20:
-        return 11
-    return 21
-
-
 def resolve_analysis_period(args: argparse.Namespace) -> tuple[int, int, int, str]:
+    """Year, month, dekad and label for a CDI period (kept for the existing tests and callers)."""
+
     if args.analysis_date:
         analysis_date = date.fromisoformat(args.analysis_date)
-        return (
-            analysis_date.year,
-            analysis_date.month,
-            dekad_from_day(analysis_date.day),
-            analysis_date.isoformat(),
-        )
-
+        return analysis_date.year, analysis_date.month, dekad_from_day(analysis_date.day), analysis_date.isoformat()
     if args.year is None or args.month is None:
         raise SystemExit("Either --analysis-date or both --year and --month are required.")
-
-    analysis_label = f"{args.year}-{args.month:02d}-{args.dekad:02d}"
-    return args.year, args.month, args.dekad, analysis_label
+    return args.year, args.month, args.dekad, f"{args.year}-{args.month:02d}-{args.dekad:02d}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -84,7 +56,7 @@ def parse_args() -> argparse.Namespace:
         help="Output directory. Defaults to outputs/niger-risk-<analysis-date-or-period>.",
     )
     parser.add_argument("--acmad-api-base-url", default=DEFAULT_ACMAD_API_BASE_URL, help="ACMAD API base URL.")
-    parser.add_argument("--acmad-geoserver-url", default="https://ada.acmad.org/geoserver", help="ACMAD GeoServer base URL.")
+    parser.add_argument("--acmad-geoserver-url", default=DEFAULT_GEOSERVER_URL, help="ACMAD GeoServer base URL.")
     parser.add_argument(
         "--hazard",
         choices=("cdi", "combined"),
@@ -151,196 +123,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def download_niger_boundary(output_path: Path, geoserver_url: str) -> Path:
-    request = niger_boundary_request(wfs_url=geoserver_url, admin_level=0)
-    url = build_wfs_getfeature_url(request)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    response = requests.get(url, timeout=120)
-    response.raise_for_status()
-    payload = response.json()
-    if not payload.get("features"):
-        raise RuntimeError(f"ACMAD boundary request returned no features: {url}")
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    return output_path
-
-
-@dataclass
-class HazardSelection:
-    """Which hazard data a run uses, decided before anything is downloaded."""
-
-    name: str  # key of the clipped hazard in the outputs: "cdi" or "combined_hazard"
-    label: str  # goes into the default output folder name
-    code_scheme: str
-    metadata: dict[str, Any]
-    fetch: Callable[[Path], Path]  # downloads into the output folder, returns the raster path
-
-
-def requested_date(args: argparse.Namespace, year: int, month: int, dekad: int) -> date:
-    return date.fromisoformat(args.analysis_date) if args.analysis_date else date(year, month, dekad)
-
-
-def select_cdi_hazard(args: argparse.Namespace) -> HazardSelection:
-    """Choose the CDI dekad from what ACMAD has actually published.
-
-    Publication lags behind the calendar, so "today" usually has no CDI yet. An
-    explicit --year/--month is an exact request and is never silently replaced.
-    """
-
-    year, month, dekad, analysis_label = resolve_analysis_period(args)
-    requested = requested_date(args, year, month, dekad)
-    code_scheme = "one-based" if args.one_based_cdi else args.cdi_code_scheme
-
-    if args.cdi_raster is not None:
-        return HazardSelection(
-            name="cdi",
-            label=analysis_label,
-            code_scheme=code_scheme,
-            metadata={"source": "local file", "requested_date": requested, "code_scheme": code_scheme},
-            fetch=lambda _output_dir: args.cdi_raster,
-        )
-
-    availability = fetch_available_datasets(args.acmad_api_base_url)
-    earliest, latest = latest_dekad_range(availability, args.cdi_product)
-    resolved = resolve_dekad(
-        requested,
-        latest,
-        earliest,
+def config_from_args(args: argparse.Namespace) -> RunConfig:
+    return RunConfig(
+        output_dir=args.output_dir,
+        analysis_date=date.fromisoformat(args.analysis_date) if args.analysis_date else None,
+        year=args.year,
+        month=args.month,
+        dekad=args.dekad,
+        hazard=args.hazard,
+        cdi_product=args.cdi_product,
+        combined_product=args.combined_product,
+        forecast_period=args.forecast_period,
+        forecast_year=args.forecast_year,
         max_fallback_dekads=args.max_fallback_dekads,
-        strict=args.strict_dates or args.analysis_date is None,
-    )
-    if resolved.fallback:
-        logger.warning(
-            "CDI for %s is not published yet; using %s (%d dekads older). The map shows that earlier period.",
-            resolved.requested.label,
-            resolved.period.label,
-            resolved.lag_dekads,
-        )
-    period = resolved.period
-
-    def fetch(output_dir: Path) -> Path:
-        return download_acmad_raster(
-            data_name=args.cdi_product,
-            year=period.year,
-            month=period.month,
-            dekad=period.dekad,
-            output_path=output_dir / f"acmad_{args.cdi_product}_{period.year}_{period.month:02d}_{period.dekad:02d}.tif",
-            base_url=args.acmad_api_base_url,
-            # With mask_nodata=true ACMAD turns CDI code 0 ("no drought") into nodata, which would
-            # drop every unaffected area from the risk map instead of scoring it low.
-            mask_nodata=False,
-        )
-
-    return HazardSelection(
-        name="cdi",
-        label=period.label,
-        code_scheme=code_scheme,
-        metadata={
-            "source": f"ACMAD {args.cdi_product}",
-            "requested_date": requested,
-            "period_used": period,
-            "period_requested": resolved.requested,
-            "fallback": resolved.fallback,
-            "lag_dekads": resolved.lag_dekads,
-            "mask_nodata": False,
-            "code_scheme": code_scheme,
-        },
-        fetch=fetch,
-    )
-
-
-def select_combined_hazard(args: argparse.Namespace) -> HazardSelection:
-    """Choose the seasonal combined hazard.
-
-    The season is picked from the periods ACMAD lists for the product in its
-    dataset catalogue. An explicit --forecast-period skips the catalogue, and the
-    download itself then confirms whether ACMAD has it.
-    """
-
-    explicit = args.forecast_period is not None
-    if explicit:
-        if args.forecast_year is None:
-            raise SystemExit("--forecast-period needs --forecast-year")
-        try:
-            season = SeasonPeriod(args.forecast_year, args.forecast_period.upper())
-        except ValueError as exc:
-            raise SystemExit(str(exc))
-        requested, fallback = season.start, False
-    else:
-        if not args.analysis_date:
-            raise SystemExit("--hazard combined needs --analysis-date or --forecast-period with --forecast-year")
-        requested = date.fromisoformat(args.analysis_date)
-        try:
-            published = combined_product_seasons(fetch_dataset_catalog(args.acmad_api_base_url), args.combined_product)
-        except KeyError as exc:
-            raise SystemExit(str(exc.args[0]))
-        resolved = resolve_season(requested, published, strict=args.strict_dates)
-        season, fallback = resolved.period, resolved.fallback
-        if fallback:
-            logger.warning("No published season covers %s; using %s.", requested.isoformat(), season.text)
-
-    def fetch(output_dir: Path) -> Path:
-        if args.combined_hazard_raster is not None:
-            return args.combined_hazard_raster
-        return download_combined_product(
-            data_name=args.combined_product,
-            forecast_period=season.label,
-            year=season.year,
-            output_path=output_dir / f"acmad_{args.combined_product}_{season.year}_{season.label}.tif",
-            base_url=args.acmad_api_base_url,
-        )
-
-    return HazardSelection(
-        name="combined_hazard",
-        label=f"combined-{season.year}-{season.label}",
-        code_scheme="combined-hazard",
-        metadata={
-            "source": "local file" if args.combined_hazard_raster else f"ACMAD {args.combined_product}",
-            "requested_date": requested,
-            "season_used": season.text,
-            "fallback": fallback,
-            "resolution_note": "1 degree grid; each cell is repeated on the exposure grid, not interpolated",
-            "code_scheme": "combined-hazard",
-        },
-        fetch=fetch,
-    )
-
-
-def resolve_grid_template(args: argparse.Namespace) -> Path | None:
-    if args.grid_template is not None:
-        return args.grid_template
-    if args.hazard == "combined":
-        for candidate in (args.cultivated_raster, args.rangeland_raster, args.water_points_raster):
-            if candidate is not None:
-                return candidate
-        logger.warning("No grid template or exposure raster given; the combined hazard stays on its native 1 degree grid.")
-    return None
-
-
-def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    args = parse_args()
-    try:
-        hazard = select_combined_hazard(args) if args.hazard == "combined" else select_cdi_hazard(args)
-    except PeriodUnavailableError as exc:
-        raise SystemExit(f"Cannot select a hazard period: {exc}")
-
-    output_dir = args.output_dir or Path("outputs") / f"niger-risk-{hazard.label}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    boundary_path = download_niger_boundary(output_dir / "niger_boundary_admin0.geojson", args.acmad_geoserver_url)
-    try:
-        hazard_path = hazard.fetch(output_dir)
-    except AcmadProductNotFound as exc:
-        raise SystemExit(f"ACMAD has no data for this period: {exc}")
-
-    grid_template = resolve_grid_template(args)
-    # Masking needs real land cover: with the constant default scores every cell would pass anyway.
-    has_exposure_rasters = any((args.cultivated_raster, args.rangeland_raster))
-    mask_to_agropastoral = has_exposure_rasters and not args.no_agropastoral_mask
-    outputs = build_agropastoral_risk_rasters(
-        cdi_raster=hazard_path,
-        boundary_geojson=boundary_path,
-        output_dir=output_dir,
+        strict_dates=args.strict_dates,
+        cdi_code_scheme="one-based" if args.one_based_cdi else args.cdi_code_scheme,
+        cdi_raster=args.cdi_raster,
+        combined_hazard_raster=args.combined_hazard_raster,
         cultivated_raster=args.cultivated_raster,
         rangeland_raster=args.rangeland_raster,
         water_points_raster=args.water_points_raster,
@@ -349,28 +148,26 @@ def main() -> int:
             rangeland=args.default_rangeland_score,
             water_points=args.default_water_score,
         ),
-        cdi_code_scheme=hazard.code_scheme,
-        grid_template=grid_template,
-        hazard_name=hazard.name,
-        mask_to_agropastoral=mask_to_agropastoral,
+        mask_to_agropastoral=False if args.no_agropastoral_mask else None,
+        grid_template=args.grid_template,
+        acmad_api_base_url=args.acmad_api_base_url,
+        acmad_geoserver_url=args.acmad_geoserver_url,
     )
 
-    metadata_path = write_run_metadata(
-        output_dir,
-        {
-            "hazard": {"input": args.hazard, "file": hazard_path, "grid_template": grid_template, **hazard.metadata},
-            "exposure": {
-                "agropastoral_mask": mask_to_agropastoral,
-                "cultivated": args.cultivated_raster or f"default score {args.default_cultivated_score}",
-                "rangeland": args.rangeland_raster or f"default score {args.default_rangeland_score}",
-                "water_points": args.water_points_raster or f"default score {args.default_water_score}",
-            },
-            "outputs": outputs,
-        },
-    )
-    for name, path in outputs.items():
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    args = parse_args()
+    try:
+        result = run_risk_workflow(config_from_args(args))
+    except (ConfigError, PeriodUnavailableError) as exc:
+        raise SystemExit(f"Cannot select a hazard period: {exc}")
+    except AcmadProductNotFound as exc:
+        raise SystemExit(f"ACMAD has no data for this period: {exc}")
+
+    for name, path in result.outputs.items():
         logger.info("Risk output %s: %s", name, path)
-    logger.info("Run metadata: %s", metadata_path)
+    logger.info("Run metadata: %s", result.metadata_path)
     for value, label in risk_class_labels().items():
         logger.info("Risk class %d: %s", value, label)
     return 0

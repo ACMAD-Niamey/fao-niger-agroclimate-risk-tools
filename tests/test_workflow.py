@@ -149,6 +149,19 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertFalse(unmasked.mask_applied)
 
+    def test_run_metadata_records_where_fetched_exposure_came_from(self):
+        folder = self.root / "exposure"
+        folder.mkdir()
+        cultivated = write_raster(folder / "cultivated_exposure.tif", np.full((8, 8), 2.0), cell=0.5, nodata=-9999.0)
+        (folder / "exposure_source.json").write_text(json.dumps({"source": "ACMAD prepared exposure", "base_url": "https://x"}), encoding="utf-8")
+        result = run_risk_workflow(self._config(cultivated_raster=cultivated), services=self.services)
+        metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+        self.assertEqual(metadata["exposure"]["prepared_from"]["source"], "ACMAD prepared exposure")
+
+        plain = write_raster(self.root / "plain.tif", np.full((8, 8), 2.0), cell=0.5, nodata=-9999.0)
+        result = run_risk_workflow(self._config(cultivated_raster=plain, output_dir=self.root / "run2"), services=self.services)
+        self.assertIsNone(json.loads(result.metadata_path.read_text(encoding="utf-8"))["exposure"]["prepared_from"])
+
     def test_invalid_configurations_are_rejected_with_plain_messages(self):
         with self.assertRaises(ConfigError):
             RunConfig(output_dir=self.root).validate()  # no date and no period

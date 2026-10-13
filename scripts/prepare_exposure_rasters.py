@@ -18,13 +18,23 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from agroclimate_core.exposure import ExposureThresholds, prepare_exposure_rasters
+from agroclimate_core.exposure_workflow import ExposureConfig, run_exposure_preparation
 
 logger = logging.getLogger("prepare_exposure_rasters")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--template", type=Path, required=True, help="Raster whose grid the exposure layers must match.")
+    parser.add_argument(
+        "--source",
+        choices=("worldcover", "acmad"),
+        default="worldcover",
+        help=(
+            "'worldcover' builds the rasters from ESA WorldCover (needs --template; minutes, hundreds of MB). "
+            "'acmad' downloads the four small rasters ACMAD has already prepared (seconds)."
+        ),
+    )
+    parser.add_argument("--template", type=Path, help="Raster whose grid the exposure layers must match.")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/exposure"), help="Where to write the rasters.")
     parser.add_argument(
         "--landcover",
@@ -60,6 +70,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = parse_args()
+    if args.source == "acmad":
+        outputs = run_exposure_preparation(ExposureConfig(output_dir=args.output_dir, source="acmad"))
+        for name, path in outputs.items():
+            logger.info("%s: %s", name, path)
+        return 0
+    if args.template is None:
+        raise SystemExit("--template is required when building exposure from land cover (--source worldcover).")
     thresholds = {
         group: ExposureThresholds(*getattr(args, f"{group}_thresholds")) for group in ("cultivated", "rangeland")
     }

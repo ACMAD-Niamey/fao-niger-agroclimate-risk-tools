@@ -7,7 +7,28 @@ from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+import requests
 from osgeo import gdal
+
+
+def block_real_network() -> None:
+    """Make any accidental real network call in a test fail loudly instead of quietly succeeding.
+
+    Tests use fake services. Without this, a test that forgot to fake one (it happened once: a
+    "remember my choice" test started a real land cover download) still passes, just slowly.
+    """
+
+    def refuse(self, method, url, *args, **kwargs):
+        raise RuntimeError(f"A test tried to use the real network: {method} {url}")
+
+    requests.sessions.Session.request = refuse
+    # GDAL's /vsicurl/ reads (land cover tiles) do not go through requests: send them to a closed port.
+    gdal.SetConfigOption("GDAL_HTTP_PROXY", "127.0.0.1:9")
+    gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", "2")
+    gdal.SetConfigOption("GDAL_HTTP_MAX_RETRY", "0")
+
+
+block_real_network()
 
 
 def write_raster(

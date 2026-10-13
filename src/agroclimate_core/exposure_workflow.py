@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, Optional, Sequence
 
 from .cancellation import WorkflowCancelled
+from .hazard_selection import ConfigError
 from .exposure import ExposureThresholds, prepare_exposure_rasters
 from .grid import make_grid_template
 from .workflow import DEFAULT_GEOSERVER_URL, CancelCheck, ProgressCallback, WorkflowServices, default_services
@@ -35,6 +36,9 @@ class ExposureConfig:
     boundary_geojson: Optional[Path] = None  # downloaded from ACMAD when not given
     geoserver_url: str = DEFAULT_GEOSERVER_URL
     landcover: Optional[Sequence[Path]] = None  # local land cover rasters instead of WorldCover
+    # "worldcover" builds the rasters from ESA WorldCover (minutes, hundreds of MB);
+    # "acmad" downloads the four small rasters ACMAD has already prepared (seconds).
+    source: str = "worldcover"
 
 
 def exposure_files_exist(directory: str | Path) -> bool:
@@ -51,9 +55,16 @@ def run_exposure_preparation(
     progress: Optional[ProgressCallback] = None,
     is_cancelled: Optional[CancelCheck] = None,
 ) -> Dict[str, Path]:
-    """Build the exposure rasters and return their paths."""
+    """Get the exposure rasters, built from land cover or fetched from ACMAD, and return their paths."""
 
+    if config.source not in ("worldcover", "acmad"):
+        raise ConfigError(f"Unknown exposure source {config.source!r}; expected 'worldcover' or 'acmad'.")
     services = services or default_services()
+
+    if config.source == "acmad":
+        # No boundary, grid or land cover is needed: the prepared rasters are already on the right grid.
+        logger.info("Getting ACMAD's prepared exposure into %s", config.output_dir)
+        return services.download_exposure(config.output_dir, progress=progress, is_cancelled=is_cancelled)
 
     def report(percent: float, message: str) -> None:
         logger.info("%3.0f%% %s", percent, message)

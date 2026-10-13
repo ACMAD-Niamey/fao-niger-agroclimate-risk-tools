@@ -23,7 +23,9 @@ import requests
 from .acmad_availability import fetch_available_datasets, fetch_dataset_catalog
 from .acmad_boundaries import build_wfs_getfeature_url, niger_boundary_request
 from .acmad_download import DEFAULT_ACMAD_API_BASE_URL, download_acmad_raster, download_combined_product
+from .admin1_download import fetch_admin1
 from .cancellation import WorkflowCancelled
+from .exposure_download import fetch_prepared_exposure, read_exposure_source
 from .hazard_selection import ConfigError, HazardSelection, select_hazard
 from .raster_pipeline import ExposureDefaults, build_agropastoral_risk_rasters
 from .run_metadata import write_run_metadata
@@ -114,6 +116,10 @@ class WorkflowServices:
     download_cdi: Callable[..., Path]
     download_combined: Callable[..., Path]
     download_boundary: Callable[[Path, str], Path]
+    # Gets ACMAD's prepared exposure rasters. Last, with a default, so existing callers keep working.
+    download_exposure: Callable[..., Dict[str, Path]] = fetch_prepared_exposure
+    # Gets the Niger admin level 1 regions for the region summary, last and defaulted for the same reason.
+    download_admin1: Callable[..., Path] = fetch_admin1
 
 
 def download_niger_boundary(output_path: Path, geoserver_url: str) -> Path:
@@ -154,6 +160,13 @@ class RunResult:
     mask_applied: bool
     boundary_path: Path
     warnings: List[str] = field(default_factory=list)
+
+
+def _exposure_provenance(config: RunConfig) -> Optional[Dict[str, Any]]:
+    """Where the exposure came from, when it was fetched from ACMAD (recorded beside the rasters)."""
+
+    raster = config.cultivated_raster or config.rangeland_raster
+    return read_exposure_source(raster.parent) if raster is not None else None
 
 
 def _resolve_grid_template(config: RunConfig, warnings: List[str]) -> Optional[Path]:
@@ -251,6 +264,7 @@ def run_risk_workflow(
             },
             "hazard": {"input": config.hazard, "file": hazard_path, "grid_template": grid_template, **hazard.metadata},
             "exposure": {
+                "prepared_from": _exposure_provenance(config),
                 "agropastoral_mask": mask_applied,
                 "cultivated": config.cultivated_raster or f"default score {defaults.cultivated}",
                 "rangeland": config.rangeland_raster or f"default score {defaults.rangeland}",

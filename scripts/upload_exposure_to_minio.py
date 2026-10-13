@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upload prepared exposure rasters and cached land cover windows to MinIO.
+"""Upload prepared exposure rasters, the admin level 1 boundaries and cached land cover to MinIO.
 
 Credentials are read from the environment or a git-ignored .env file
 (MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET). Objects
@@ -16,6 +16,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from agroclimate_core.admin1_download import ADMIN1_FILENAME, validate_admin_geojson
 from agroclimate_core.storage import MinioSettings, build_client, load_env_file, upload_files
 
 logger = logging.getLogger("upload_exposure_to_minio")
@@ -27,7 +28,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--landcover-dir", type=Path, default=Path("outputs/cache/worldcover"), help="Folder with cached land cover windows.")
     parser.add_argument("--prefix", default="fao-niger-agroclimate/niger", help="Folder (key prefix) inside the bucket.")
     parser.add_argument("--env-file", type=Path, default=REPO_ROOT / ".env", help="Environment file with the MINIO_* settings.")
-    parser.add_argument("--skip-landcover", action="store_true", help="Upload only the small exposure rasters.")
+    parser.add_argument(
+        "--admin1-file",
+        type=Path,
+        default=Path("outputs/admin/niger_adm1_ocha.geojson"),
+        help="Niger admin level 1 regions (OCHA) to publish for the plugin's region summary. Skipped if the file is missing.",
+    )
+    parser.add_argument("--skip-landcover", action="store_true", help="Upload only the small files, not the cached land cover.")
     parser.add_argument("--dry-run", action="store_true", help="List what would be uploaded without contacting MinIO.")
     return parser.parse_args()
 
@@ -35,6 +42,11 @@ def parse_args() -> argparse.Namespace:
 def collect_files(args: argparse.Namespace) -> dict[Path, str]:
     prefix = args.prefix.strip("/")
     files = {path: f"{prefix}/exposure/{path.name}" for path in sorted(args.exposure_dir.glob("*.tif"))}
+    if args.admin1_file.is_file():
+        # Refuse to publish a file the plugin would reject: validate with the plugin's own checks first.
+        regions = validate_admin_geojson(args.admin1_file.read_bytes())
+        logger.info("Admin level 1 file passes the plugin's checks (%d regions)", regions)
+        files[args.admin1_file] = f"{prefix}/boundaries/{ADMIN1_FILENAME}"
     if not args.skip_landcover:
         files.update({path: f"{prefix}/landcover/worldcover_2021/{path.name}" for path in sorted(args.landcover_dir.glob("*.tif"))})
     return files

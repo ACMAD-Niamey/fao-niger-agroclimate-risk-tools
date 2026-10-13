@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -29,6 +32,37 @@ class LlmError(RuntimeError):
     """The language model could not be used. Messages never contain the API key."""
 
 
+# Invisible characters that sneak in when text is copied from documents, chats or web pages.
+_INVISIBLE = "\u200b\u200c\u200d\u2060\ufeff"
+_KEY_JUNK = re.compile(r"[\s" + _INVISIBLE + "]")  # \s includes the non-breaking space
+_TEXT_JUNK = re.compile("[" + _INVISIBLE + "]")
+NON_ASCII_KEY_MESSAGE = (
+    "The API key contains characters that are not plain letters, digits or symbols (for example an accented "
+    "or invisible character). Copy the key again."
+)
+
+# Characters that are easy to mistake for each other when a key is retyped or read from a screen.
+_CONFUSABLE = (("0", "digit 0"), ("O", "letter O"), ("1", "digit 1"), ("l", "letter l"), ("I", "capital I"))
+
+
+def describe_key(key: str) -> str:
+    """Say what was sent, without revealing the key, so a wrong key can be spotted.
+
+    Gives its length, its last four characters (which services echo back anyway), and the positions of
+    characters that are easy to confuse (0/O, 1/l/I) so they can be compared with where the key came from.
+    """
+
+    text = f"The plugin sent a key of {len(key)} characters ending in '{key[-4:]}'."
+    items = []
+    for char, name in _CONFUSABLE:
+        positions = [str(i + 1) for i, c in enumerate(key) if c == char]
+        if positions:
+            items.append(f"{name} at position{'s' if len(positions) > 1 else ''} {', '.join(positions)}")
+    if items:
+        text += " Characters that are easy to mistake, to check against where you copied it from: " + "; ".join(items) + "."
+    return text
+
+
 @dataclass(frozen=True)
 class LlmSettings:
     base_url: str = ""
@@ -36,7 +70,19 @@ class LlmSettings:
     api_key: str = field(default="", repr=False)
     model: str = ""
     language: str = "en"
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 60.0  # longest silence tolerated while waiting for the service
+    # Optional JSON object merged into the request, for services that need it, for example
+    # {"chat_template_kwargs": {"enable_thinking": false}} to stop a reasoning model thinking at length.
+    extra_fields: str = ""
+    total_timeout_seconds: float = 300.0  # longest the whole answer may take
+
+    def __post_init__(self) -> None:
+        # A key never contains spaces, so every space, line break and invisible character is copy-paste
+        # debris: a leading space or a non-breaking space makes a service reject a correct key, and a
+        # line break stops the request being sent at all. The address and model only lose stray ends.
+        object.__setattr__(self, "api_key", _KEY_JUNK.sub("", self.api_key))
+        object.__setattr__(self, "base_url", _TEXT_JUNK.sub("", self.base_url).strip())
+        object.__setattr__(self, "model", _TEXT_JUNK.sub("", self.model).strip())
 
     @property
     def is_configured(self) -> bool:
@@ -90,9 +136,91 @@ def build_run_payload(
     return payload
 
 
+MAX_TOKENS = 2000  # bounds how long an answer can run (a description is a few hundred words, but reasoning models also spend tokens thinking)
+EXTRA_FIELDS_HINT = '{"chat_template_kwargs": {"enable_thinking": false}}'
+
+
+def parse_extra_fields(text: str) -> Dict[str, Any]:
+    """The optional extra request fields as a dict. Blank means none; anything else must be a JSON object."""
+
+    if not text.strip():
+        return {}
+    try:
+        value = json.loads(text)
+    except ValueError:
+        value = None
+    if not isinstance(value, dict):
+        raise LlmError(
+            "The Extra request fields are not valid. They must be a JSON object in double quotes, "
+            f"for example {EXTRA_FIELDS_HINT}, or left empty."
+        )
+    return value
+
+
+def _read_stream(response: Any, deadline: float) -> tuple:
+    """Join the answer from a server-sent-events reply. Returns (answer, saw_reasoning).
+
+    Only the ``content`` of each chunk is used. Reasoning models also stream their thinking
+    (``reasoning_content``); that is never shown, only noted so a missing answer can be explained.
+    """
+
+    parts: List[str] = []
+    saw_reasoning = False
+    try:
+        for raw in response.iter_lines():
+            if time.monotonic() >= deadline:
+                raise LlmError("The language model service took too long to finish its answer.")
+            line = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                delta = json.loads(data)["choices"][0].get("delta", {})
+            except (ValueError, KeyError, IndexError, TypeError):
+                continue  # a malformed keep-alive or comment line: skip it
+            if delta.get("content"):
+                parts.append(delta["content"])
+            if delta.get("reasoning_content") or delta.get("reasoning"):
+                saw_reasoning = True
+    except requests.RequestException as exc:
+        logger.warning("Stream interrupted: %s", exc)
+        raise LlmError("The connection to the language model service dropped before the answer was complete.") from exc
+    return "".join(parts), saw_reasoning
+
+
 def _endpoint(base_url: str) -> str:
     url = base_url.strip().rstrip("/")
     return url if url.endswith("/chat/completions") else url + "/chat/completions"
+
+
+def _status_message(status: int, endpoint: str, key: str = "") -> str:
+    """What to check for an HTTP status. The service's own reply text is never echoed back.
+
+    Services often put the key (or part of it) and internal details in error bodies, so only the
+    status is used. The called address is shown because it is not secret and is the quickest way
+    for a user to spot a wrong or doubled path.
+    """
+
+    if status == 401:
+        message = "The service rejected the API key (HTTP 401). The address was reached, so check that the key is the current one for this service."
+        return f"{message} {describe_key(key)}" if key else message
+    if status == 403:
+        return "The service says this key is not allowed to use it (HTTP 403), or the address is not the service's API address."
+    if status == 404:
+        return (
+            f"The service address was not found (HTTP 404). The plugin called {endpoint}. "
+            "The service address should end with /v1 (the plugin adds /chat/completions), "
+            "or the model name may not exist on this service."
+        )
+    if status in (400, 422):
+        return f"The service did not accept the request (HTTP {status}). Check the model name."
+    if status == 429:
+        return "The service is limiting requests (HTTP 429). Wait a moment and try again."
+    if status >= 500:
+        return f"The service reported a problem on its side (HTTP {status}). Try again later."
+    return f"The language model service answered with HTTP {status}."
 
 
 def build_messages(payload: Mapping[str, Any], *, language: str = "en") -> List[Dict[str, str]]:
@@ -124,29 +252,118 @@ def request_interpretation(
 
     if not settings.is_configured:
         raise LlmError("The language model is not configured: set the address, key and model first.")
+    if not settings.api_key.isascii():
+        raise LlmError(NON_ASCII_KEY_MESSAGE)
 
+    extra = parse_extra_fields(settings.extra_fields)  # checked first: bad input must not reach the network
     client = session or requests.Session()
+    endpoint = _endpoint(settings.base_url)
+    # Streaming keeps bytes flowing, so a gateway that cuts a silent connection after about a minute
+    # (common for slow reasoning models) cannot kill a long answer. The user's extra fields can change
+    # the defaults, but never the model, the messages or the stream flag.
+    body = {
+        "temperature": 0.2,
+        "max_tokens": MAX_TOKENS,
+        **extra,
+        "model": settings.model,
+        "messages": build_messages(payload, language=settings.language),
+        "stream": True,
+    }
+    deadline = time.monotonic() + settings.total_timeout_seconds
     try:
         response = client.post(
-            _endpoint(settings.base_url),
+            endpoint,
             headers={"Authorization": f"Bearer {settings.api_key}", "Content-Type": "application/json"},
-            json={
-                "model": settings.model,
-                "messages": build_messages(payload, language=settings.language),
-                "temperature": 0.2,
-            },
+            json=body,
             timeout=settings.timeout_seconds,
+            stream=True,
         )
     except requests.RequestException as exc:
         raise LlmError(f"Could not reach the language model service: {type(exc).__name__}") from exc
 
     if response.status_code != 200:
-        # The body is not echoed back: a service may include the key or request in its error text.
-        raise LlmError(f"The language model service answered with HTTP {response.status_code}.")
-    try:
-        text = response.json()["choices"][0]["message"]["content"]
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
-        raise LlmError("The language model service sent an answer in an unexpected format.") from exc
+        raise LlmError(_status_message(response.status_code, endpoint, settings.api_key))
+
+    saw_reasoning = False
+    if "text/event-stream" in str(getattr(response, "headers", {}).get("content-type", "")).lower():
+        text, saw_reasoning = _read_stream(response, deadline)
+    else:
+        # A service that ignores the streaming request and sends one JSON answer.
+        try:
+            text = response.json()["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise LlmError("The language model service sent an answer in an unexpected format.") from exc
     if not isinstance(text, str) or not text.strip():
+        if saw_reasoning:
+            raise LlmError(
+                "The model produced no answer: it used its allowance thinking. Turn thinking off with the "
+                f"Extra request fields setting, for example {EXTRA_FIELDS_HINT}, or choose a model that answers directly."
+            )
         raise LlmError("The language model service returned an empty answer.")
     return f"{text.strip()}\n\n{DISCLAIMER}"
+
+
+@dataclass(frozen=True)
+class ConnectionReport:
+    ok: bool
+    summary: str  # plain language, safe to show: never contains the key or the service's own error text
+
+
+def check_connection(settings: LlmSettings, *, session: Optional[requests.Session] = None) -> ConnectionReport:
+    """Check the address, the key and the model one at a time, and say which one is wrong.
+
+    First asks the service for its model list, which tells apart "address wrong", "key rejected" and
+    "model not offered". A service without a model list is tried with a one-word chat instead.
+    """
+
+    missing = [
+        name
+        for name, value in (("service address", settings.base_url), ("API key", settings.api_key), ("model", settings.model))
+        if not value.strip()
+    ]
+    if missing:
+        return ConnectionReport(False, f"Set the {', '.join(missing)} first.")
+    if not settings.api_key.isascii():
+        return ConnectionReport(False, NON_ASCII_KEY_MESSAGE)
+
+    client = session or requests.Session()
+    headers = {"Authorization": f"Bearer {settings.api_key}", "Content-Type": "application/json"}
+    endpoint = _endpoint(settings.base_url)
+    root = endpoint[: -len("/chat/completions")]
+    host = urlparse(root).netloc or root
+
+    def unreachable(exc: Exception) -> ConnectionReport:
+        logger.warning("Connection check failed: %s", exc)  # technical detail stays in the log
+        return ConnectionReport(False, f"Could not reach the service at {host}. Check the address and your internet connection.")
+
+    try:
+        response = client.get(f"{root}/models", headers=headers, timeout=settings.timeout_seconds)
+    except requests.RequestException as exc:
+        return unreachable(exc)
+
+    if response.status_code == 200:
+        try:
+            listed = [item["id"] for item in response.json()["data"]]
+        except (ValueError, KeyError, TypeError):
+            listed = []
+        if settings.model in listed:
+            return ConnectionReport(True, f"Connected. The key works and the model '{settings.model}' is available.")
+        if listed:
+            shown = ", ".join(listed[:8]) + (" ..." if len(listed) > 8 else "")
+            return ConnectionReport(False, f"The key works, but the model '{settings.model}' is not in the service's list. Available models include: {shown}.")
+    elif response.status_code not in (404, 405):
+        return ConnectionReport(False, _status_message(response.status_code, endpoint, settings.api_key))
+
+    # No usable model list: ask the real endpoint for one word.
+    try:
+        chat = client.post(
+            endpoint,
+            headers=headers,
+            json={"model": settings.model, "messages": [{"role": "user", "content": "Reply OK"}], "max_tokens": 1},
+            timeout=settings.timeout_seconds,
+        )
+    except requests.RequestException as exc:
+        return unreachable(exc)
+    if chat.status_code == 200:
+        return ConnectionReport(True, f"Connected. The key works and the service answered using the model '{settings.model}'.")
+    return ConnectionReport(False, _status_message(chat.status_code, endpoint, settings.api_key))

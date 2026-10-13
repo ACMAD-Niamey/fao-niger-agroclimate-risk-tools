@@ -86,8 +86,9 @@ class FakePrompter:
         self.answer, self.confirmations, self.warnings = answer, [], []
         self.exposure_choice, self.exposure_prompts = "test", 0  # "prepare", "test" or "cancel"
 
-    def choose_exposure_action(self):
+    def choose_exposure_action(self, from_acmad: bool = False):
         self.exposure_prompts += 1
+        self.last_from_acmad = from_acmad
         return self.exposure_choice
 
     def confirm(self, title, text):
@@ -128,6 +129,15 @@ class PanelTestCase(unittest.TestCase):
         self.prompter = FakePrompter(True)
         self.services, self.calls = fake_services(self.root, boundary=write_boundary(self.root / "b.geojson"))
         self.llm_calls = []
+        self.llm_checks = []
+        ConnectionReport = core("llm").ConnectionReport
+        self.next_report = ConnectionReport(True, "Connected. The key works and the model 'm1' is available.")
+
+        def fake_check(settings):
+            self.llm_checks.append(settings)
+            return self.next_report
+
+        self.fake_llm_check = fake_check
 
         def fake_llm(settings, payload):
             self.llm_calls.append((settings, payload))
@@ -141,6 +151,7 @@ class PanelTestCase(unittest.TestCase):
             submit_task=run_inline,
             prompter=self.prompter,
             llm_request=fake_llm,
+            llm_check=self.fake_llm_check,
         )
         self.dock = self.controller.dock
         self.RiskPanelController = RiskPanelController
@@ -321,6 +332,8 @@ class RunFlowTests(PanelTestCase):
         self.assertEqual(self.dock.class_table.rowCount(), 4)
         bars = {label: colour for label, _share, colour in self.dock.chart.bars()}
         self.assertEqual(bars["Very high"], "#e31a1c")  # same colour as on the map
+        table = self.dock.class_table
+        self.assertGreaterEqual(table.height(), table.verticalHeader().length() + table.horizontalHeader().height())  # all 4 rows fit
         self.assertIn("Scored area", self.dock.summary_label.text())
         self.assertFalse(self.dock.warning_label.isHidden())
         self.assertIn("latest available", self.dock.warning_label.text())
@@ -422,6 +435,101 @@ class RunFlowTests(PanelTestCase):
         self.assertTrue(self.dock.run_button.isEnabled())
 
 
+def acmad_download_that_writes(folder_hint=None, calls=None):
+    """A stand-in for fetching ACMAD's prepared exposure: writes the four rasters, no network."""
+
+    import numpy as np
+
+    def download(output_dir, **_kwargs):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if calls is not None:
+            calls.append(output_dir)
+        for name, value in (("cultivated_exposure", 2.0), ("rangeland_exposure", 1.0)):
+            write_raster(output_dir / f"{name}.tif", np.full((8, 8), value), cell=0.5, nodata=-9999.0)
+        for name in ("cultivated_fraction", "rangeland_fraction"):
+            write_raster(output_dir / f"{name}.tif", np.full((4, 4), 0.5), nodata=-9999.0)
+        return {}
+
+    return download
+
+
+class AcmadExposureTests(PanelTestCase):
+    def test_using_acmads_prepared_exposure_is_ticked_by_default(self):
+        self.assertTrue(self.dock.use_acmad_check.isChecked())
+        self.assertEqual(self.dock.collect_exposure_config().source, "acmad")
+        self.assertIn("ACMAD", self.dock.prepare_button.text())
+        self.assertNotIn("5 minutes", self.dock.prepare_button.text())
+
+    def test_unticking_it_builds_from_land_cover_and_says_how_long_that_takes(self):
+        self.dock.use_acmad_check.setChecked(False)
+        self.assertEqual(self.dock.collect_exposure_config().source, "worldcover")
+        self.assertIn("5 minutes", self.dock.prepare_button.text())
+        self.dock.use_acmad_check.setChecked(True)
+        self.assertIn("ACMAD", self.dock.prepare_button.text())  # and back again
+
+    def test_pressing_the_button_fetches_from_acmad_without_a_big_download_warning(self):
+        calls = []
+        self.services.download_exposure = acmad_download_that_writes(calls=calls)
+        self.dock.exposure_widget.setFilePath(str(self.root / "exposure"))
+        self.dock.prepare_button.click()
+        self.assertEqual(calls, [self.root / "exposure"])
+        self.assertEqual(self.prompter.confirmations, [])  # 66 KB: nothing to confirm
+        self.assertIn("Exposure rasters found", self.dock.exposure_status.text())
+        self.assertEqual(self.dock.status_label.text(), "Exposure rasters are ready.")
+
+    def test_a_run_with_no_exposure_offers_the_fast_route_and_then_runs(self):
+        calls = []
+        self.services.download_exposure = acmad_download_that_writes(calls=calls)
+        self.dock.exposure_widget.setFilePath(str(self.root / "exposure"))
+        self.prompter.exposure_choice = "prepare"
+        self.run_current()
+        self.assertTrue(self.prompter.last_from_acmad)  # the dialog described the quick download
+        self.assertEqual(calls, [self.root / "exposure"])
+        self.assertEqual(self.prompter.confirmations, [])
+        self.assertEqual(self.dock.status_label.text(), "Done.")
+        self.assertTrue(self.controller.result.mask_applied)  # real exposure, so not a test run
+
+    def test_a_failed_download_explains_the_other_route_and_does_not_start_a_run(self):
+        ExposureDownloadError = core("exposure_download").ExposureDownloadError
+
+        def failing(output_dir, **_kwargs):
+            raise ExposureDownloadError("Could not reach ACMAD's server to get the prepared exposure.")
+
+        self.services.download_exposure = failing
+        self.dock.exposure_widget.setFilePath(str(self.root / "exposure"))
+        self.prompter.exposure_choice = "prepare"
+        self.run_current()
+        text = self.dock.status_label.text()
+        self.assertIn("Could not reach ACMAD", text)
+        self.assertIn("Untick", text)  # tells the user what to try instead
+        self.assertEqual(self.calls, [])  # the hazard was never downloaded
+        self.assertTrue(self.dock.run_button.isEnabled())
+
+    def test_the_choice_is_remembered_between_sessions(self):
+        import numpy as np
+        from osgeo import gdal
+
+        ExposureConfig = core("exposure_workflow").ExposureConfig
+        self.assertTrue(self.settings.use_acmad_exposure)  # default
+        self.dock.use_acmad_check.setChecked(False)
+        self.dock.exposure_widget.setFilePath(str(self.root / "exposure"))
+        # Build from a small local land cover raster: a test must never reach the real network.
+        landcover = write_raster(self.root / "wc.tif", np.full((80, 80), 40), origin=(0.0, 4.0), cell=0.05, nodata=0, dtype=gdal.GDT_Byte)
+        config = self.dock.collect_exposure_config()
+        self.dock.prepareExposureRequested.emit(
+            ExposureConfig(output_dir=config.output_dir, cache_dir=None, landcover=[landcover], source=config.source)
+        )
+        self.assertFalse(self.settings.use_acmad_exposure)
+
+    def test_a_land_cover_build_still_asks_before_a_large_download(self):
+        self.dock.use_acmad_check.setChecked(False)
+        self.prompter.answer = False
+        self.dock.prepare_button.click()
+        self.assertEqual(len(self.prompter.confirmations), 1)
+        self.assertIn("430 MB", self.prompter.confirmations[0][1])
+
+
 class ExposureFlowTests(PanelTestCase):
     def test_preparing_exposure_makes_the_folder_ready_for_runs(self):
         ExposureConfig = core("exposure_workflow").ExposureConfig
@@ -450,6 +558,150 @@ class ExposureFlowTests(PanelTestCase):
         self.prompter.answer = False
         self.dock.prepareExposureRequested.emit(ExposureConfig(output_dir=self.root / "exposure", cache_dir=None))
         self.assertFalse((self.root / "exposure").exists())
+
+
+def acmad_admin1_that_writes(calls=None):
+    """A stand-in for fetching ACMAD's admin level 1 regions: two regions over the 4x4 test extent."""
+
+    import json as _json
+
+    def download(output_dir, **_kwargs):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if calls is not None:
+            calls.append(output_dir)
+
+        def region(name, code, x0, x1):
+            ring = [[x0, 0], [x1, 0], [x1, 4], [x0, 4], [x0, 0]]
+            return {"type": "Feature", "properties": {"adm1_name": name, "adm1_pcode": code}, "geometry": {"type": "Polygon", "coordinates": [ring]}}
+
+        path = output_dir / "niger_admin1_ocha.geojson"
+        path.write_text(_json.dumps({"type": "FeatureCollection", "features": [region("West", "NE001", 0, 2), region("East", "NE002", 2, 4)]}), encoding="utf-8")
+        return path
+
+    return download
+
+
+class AcmadRegionsTests(PanelTestCase):
+    def run_a_map(self):
+        self.make_exposure()
+        self.run_current()
+
+    def test_acmads_regions_are_the_default_and_credit_their_source(self):
+        self.assertTrue(self.dock.use_acmad_regions_check.isChecked())
+        self.assertFalse(self.dock.region_layer_combo.isEnabled())  # nothing to pick: ACMAD's file is used
+        self.assertIn("OCHA", self.dock.region_attribution.text())
+        self.assertIn("CC BY-IGO", self.dock.region_attribution.text())
+
+    def test_summarising_with_the_default_needs_no_layer_and_fills_the_table(self):
+        from qgis.core import QgsProject
+
+        calls = []
+        self.services.download_admin1 = acmad_admin1_that_writes(calls)
+        self.run_a_map()
+        self.dock.summarise_button.click()
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].name, "boundaries")  # kept beside the runs, reused by later ones
+        self.assertEqual(self.dock.region_table.rowCount(), 2)
+        self.assertEqual({self.dock.region_table.item(r, 0).text() for r in range(2)}, {"West", "East"})
+        self.assertTrue((self.controller.result.output_dir / "admin_risk_summary.csv").is_file())
+        names = [layer.name() for layer in QgsProject.instance().mapLayers().values()]
+        self.assertIn("Risk by region (2026-09-11)", names)
+        self.assertTrue(any("OCHA" in text for text, _ in self.iface.bar.messages))  # the credit travels with the result
+        self.assertTrue(self.settings.use_acmad_regions)
+
+    def test_unticking_hands_the_choice_back_to_the_user_and_their_layer_is_used(self):
+        from qgis.core import QgsProject, QgsVectorLayer
+
+        calls = []
+        self.services.download_admin1 = acmad_admin1_that_writes(calls)
+        self.run_a_map()
+        _write_admin(self.root / "mine.geojson")
+        mine = QgsVectorLayer(str(self.root / "mine.geojson"), "mine", "ogr")
+        QgsProject.instance().addMapLayer(mine)  # the picker lists layers loaded in the project, as in real use
+        self.dock.use_acmad_regions_check.setChecked(False)
+        self.assertTrue(self.dock.region_layer_combo.isEnabled())
+        self.dock.region_layer_combo.setLayer(mine)
+        self.dock.region_name_combo.setField("name")
+        self.dock.summarise_button.click()
+
+        self.assertEqual(calls, [])  # ACMAD's file was not fetched
+        self.assertEqual({self.dock.region_table.item(r, 0).text() for r in range(2)}, {"West", "East"})
+        self.assertFalse(self.settings.use_acmad_regions)
+
+    def test_a_failed_download_says_how_to_use_your_own_layer_instead(self):
+        AdminBoundaryDownloadError = core("admin1_download").AdminBoundaryDownloadError
+
+        def failing(output_dir, **_kwargs):
+            raise AdminBoundaryDownloadError("Could not reach ACMAD's server to get the regions.")
+
+        self.services.download_admin1 = failing
+        self.run_a_map()
+        self.dock.summarise_button.click()
+        text = self.dock.status_label.text()
+        self.assertIn("Could not reach ACMAD", text)
+        self.assertIn("Untick", text)
+        self.assertEqual(self.dock.region_table.rowCount(), 0)
+        self.assertTrue(self.dock.run_button.isEnabled())
+
+    def test_a_region_layer_must_be_chosen_when_the_default_is_off(self):
+        self.run_a_map()
+        self.dock.use_acmad_regions_check.setChecked(False)
+        self.dock.summarise_button.click()  # nothing chosen: no crash, nothing summarised
+        self.assertEqual(self.dock.region_table.rowCount(), 0)
+
+
+class ResultsLayoutTests(PanelTestCase):
+    """The Results tab must stay usable in a small panel: scrolling, a table that shows its rows, a larger view."""
+
+    def summarised(self):
+        self.services.download_admin1 = acmad_admin1_that_writes()
+        self.make_exposure()
+        self.run_current()
+        self.dock.summarise_button.click()
+
+    def test_every_tab_scrolls_so_nothing_falls_off_a_small_panel(self):
+        from qgis.PyQt.QtWidgets import QScrollArea
+
+        tabs = self.dock.widget()
+        for index in range(tabs.count()):
+            area = tabs.widget(index)
+            self.assertIsInstance(area, QScrollArea, tabs.tabText(index))
+            self.assertTrue(area.widgetResizable())
+
+    def test_the_region_table_is_as_tall_as_its_rows_and_scrolls_sideways(self):
+        from qgis.PyQt.QtCore import Qt
+
+        self.summarised()
+        table = self.dock.region_table
+        self.assertEqual(table.rowCount(), 2)
+        needed = table.verticalHeader().length() + table.horizontalHeader().height()
+        self.assertGreaterEqual(table.height(), needed)  # every row visible, not squeezed to one
+        self.assertNotEqual(table.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)  # wide columns can be scrolled to
+
+    def test_the_larger_window_shows_every_column_and_can_be_copied(self):
+        self.assertFalse(self.dock.region_wide_button.isEnabled())  # nothing to show before a summary
+        self.summarised()
+        self.assertTrue(self.dock.region_wide_button.isEnabled())
+        self.dock.region_wide_button.click()
+        dialog = self.dock.region_dialog
+        self.assertIsNotNone(dialog)
+        self.assertEqual(dialog.table.rowCount(), 2)
+        self.assertGreater(dialog.table.columnCount(), self.dock.region_table.columnCount())  # all the figures, not a subset
+        headers = [dialog.table.horizontalHeaderItem(c).text() for c in range(dialog.table.columnCount())]
+        self.assertIn("Region", headers)
+        text = dialog.as_text()
+        self.assertEqual(len(text.splitlines()), 3)  # header + two regions
+        self.assertTrue(all("\t" in line for line in text.splitlines()))  # tab separated: pastes into a spreadsheet
+        self.assertIn("West", text)
+
+    def test_the_larger_window_is_refreshed_not_duplicated(self):
+        self.summarised()
+        self.dock.region_wide_button.click()
+        first = self.dock.region_dialog
+        self.dock.region_wide_button.click()
+        self.assertIs(self.dock.region_dialog, first)
 
 
 class RegionSummaryTests(PanelTestCase):
@@ -502,6 +754,17 @@ class LanguageModelTests(PanelTestCase):
         self.configure_llm()
         self.assertTrue(self.dock.interpret_button.isEnabled())
 
+    def test_extra_request_fields_are_saved_loaded_and_sent_with_the_request(self):
+        fields = '{"chat_template_kwargs": {"enable_thinking": false}}'
+        self.dock.llm_extra.setText(fields)
+        self.configure_llm()
+        self.assertEqual(self.store.value("FaoNigerAgroclimate/llm/extra_fields", ""), fields)  # not secret: kept
+        self.assertEqual(self.settings.load_llm().extra_fields, fields)
+        self.make_exposure()
+        self.run_current()
+        self.dock.interpret_button.click()
+        self.assertEqual(self.llm_calls[0][0].extra_fields, fields)
+
     def test_the_key_stays_in_memory_unless_remembered(self):
         self.configure_llm(remember=False)
         self.assertEqual(self.store.value("FaoNigerAgroclimate/llm/api_key", ""), "")
@@ -541,6 +804,44 @@ class LanguageModelTests(PanelTestCase):
     def test_unconfigured_model_explains_what_to_set_up(self):
         self.controller.on_interpret_requested()
         self.assertIn("Settings tab", self.prompter.warnings[-1][1])
+
+
+class LlmConnectionTestTests(PanelTestCase):
+    def fill_settings(self):
+        self.dock.llm_url.setText("https://llm.example.org/v1")
+        self.dock.llm_model.setText("m1")
+        self.dock.llm_key.setText("sk-secret-123")
+
+    def test_the_test_button_uses_what_is_typed_without_saving_first(self):
+        self.fill_settings()
+        self.dock.test_llm_button.click()
+        self.assertEqual(len(self.llm_checks), 1)
+        checked = self.llm_checks[0]
+        self.assertEqual((checked.base_url, checked.model, checked.api_key), ("https://llm.example.org/v1", "m1", "sk-secret-123"))
+        self.assertEqual(self.store.value("FaoNigerAgroclimate/llm/base_url", ""), "")  # nothing was saved
+        self.assertIn("The key works", self.dock.llm_test_result.text())
+
+    def test_a_problem_is_shown_in_plain_words_and_marked_as_a_problem(self):
+        ConnectionReport = core("llm").ConnectionReport
+        self.next_report = ConnectionReport(False, "The service rejected the API key (HTTP 401). The address was reached.")
+        self.fill_settings()
+        self.dock.test_llm_button.click()
+        self.assertIn("rejected the API key", self.dock.llm_test_result.text())
+        self.assertNotIn("sk-secret-123", self.dock.llm_test_result.text())
+        self.assertIn("#a40000", self.dock.llm_test_result.styleSheet())  # shown in a warning colour
+
+    def test_success_is_shown_in_a_calm_colour_and_buttons_come_back(self):
+        self.fill_settings()
+        self.dock.test_llm_button.click()
+        self.assertIn("#1a6b1a", self.dock.llm_test_result.styleSheet())
+        self.assertTrue(self.dock.test_llm_button.isEnabled())
+        self.assertTrue(self.dock.run_button.isEnabled())
+
+    def test_an_empty_form_reports_what_is_missing(self):
+        ConnectionReport = core("llm").ConnectionReport
+        self.next_report = ConnectionReport(False, "Set the service address, API key, model first.")
+        self.dock.test_llm_button.click()
+        self.assertIn("Set the", self.dock.llm_test_result.text())
 
 
 class PluginEntryTests(PanelTestCase):

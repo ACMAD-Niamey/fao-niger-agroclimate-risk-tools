@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 from qgis.PyQt.QtCore import QRectF, Qt
 from qgis.PyQt.QtGui import QColor, QFontMetrics, QPainter
-from qgis.PyQt.QtWidgets import QSizePolicy, QWidget
+from qgis.PyQt.QtWidgets import (
+    QApplication,
+    QDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QPushButton,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 # (label, share in percent, colour as #rrggbb)
 Bar = Tuple[str, float, str]
@@ -56,3 +67,95 @@ class ClassBarChart(QWidget):
                 Qt.AlignVCenter | Qt.AlignRight,
                 f"{share:.1f}%",
             )
+
+
+# (key in a summary row, column title), in reading order. Keys a run does not have (for example the hectare
+# columns when no land cover fractions were available) are simply left out.
+REGION_FIELDS = (
+    ("admin_name", "Region"),
+    ("admin_code", "Code"),
+    ("cells_total", "Cells"),
+    ("cells_scored", "Cells scored"),
+    ("zone_area_km2", "Region area (km²)"),
+    ("scored_area_km2", "Scored area (km²)"),
+    ("mean_risk_score", "Mean score"),
+    ("max_risk_class", "Worst class"),
+    ("pct_low", "Low (%)"),
+    ("pct_moderate", "Moderate (%)"),
+    ("pct_high", "High (%)"),
+    ("pct_very_high", "Very high (%)"),
+    ("high_risk_area_km2", "High-risk area (km²)"),
+    ("cultivated_ha_total", "Cropland (ha)"),
+    ("cultivated_ha_high_risk", "Cropland in high risk (ha)"),
+    ("rangeland_ha_total", "Rangeland (ha)"),
+    ("rangeland_ha_high_risk", "Rangeland in high risk (ha)"),
+)
+
+
+class RegionTableDialog(QDialog):
+    """Every figure of the region summary in a window of its own, with room to scroll and a Copy button.
+
+    The panel's table is a compact view of a wide table; this is the whole thing, sortable and
+    copyable as tab-separated text that pastes straight into a spreadsheet.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Risk by region")
+        self.resize(1100, 460)
+        layout = QVBoxLayout(self)
+        self.table = QTableWidget(0, 0)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.verticalHeader().hide()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        layout.addWidget(self.table)
+        buttons = QHBoxLayout()
+        self.copy_button = QPushButton("Copy table")
+        self.copy_button.setToolTip("Copies the whole table as tab-separated text. Paste it into a spreadsheet.")
+        self.close_button = QPushButton("Close")
+        buttons.addStretch(1)
+        buttons.addWidget(self.copy_button)
+        buttons.addWidget(self.close_button)
+        layout.addLayout(buttons)
+        self.copy_button.clicked.connect(self._copy)
+        self.close_button.clicked.connect(self.close)
+        self._columns: List[Tuple[str, str]] = []
+        self._rows: List[Dict[str, Any]] = []
+
+    def set_rows(self, rows: Sequence[Dict[str, Any]]) -> None:
+        self._rows = list(rows)
+        present = {key for row in self._rows for key in row}
+        self._columns = [(key, title) for key, title in REGION_FIELDS if key in present]
+        self.table.setSortingEnabled(False)
+        self.table.setColumnCount(len(self._columns))
+        self.table.setHorizontalHeaderLabels([title for _key, title in self._columns])
+        self.table.setRowCount(len(self._rows))
+        for r, row in enumerate(self._rows):
+            for c, (key, _title) in enumerate(self._columns):
+                value = row.get(key)
+                item = QTableWidgetItem()
+                if value is None:
+                    item.setText("n/a")
+                elif isinstance(value, (int, float)):
+                    item.setData(Qt.DisplayRole, value)  # numbers sort as numbers, not as text
+                else:
+                    item.setText(str(value))
+                self.table.setItem(r, c, item)
+        self.table.resizeColumnsToContents()
+        self.table.setSortingEnabled(True)
+
+    def as_text(self) -> str:
+        """The whole table, tab separated, with a header line."""
+
+        def cell(value: Any) -> str:
+            if value is None:
+                return "n/a"
+            return f"{value:.2f}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
+
+        lines = ["\t".join(title for _key, title in self._columns)]
+        lines += ["\t".join(cell(row.get(key)) for key, _title in self._columns) for row in self._rows]
+        return "\n".join(lines)
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(self.as_text())

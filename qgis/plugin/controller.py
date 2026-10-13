@@ -28,14 +28,28 @@ from qgis.core import (
 )
 
 from .agroclimate_core.acmad_download import AcmadProductNotFound
+from .agroclimate_core.admin1_download import (
+    ADMIN1_ATTRIBUTION,
+    ADMIN1_CODE_FIELD,
+    ADMIN1_NAME_FIELD,
+    AdminBoundaryDownloadError,
+)
 from .agroclimate_core.admin_summary import summarize_by_admin, write_summary_csv, write_summary_geojson
+from .agroclimate_core.exposure_download import ExposureDownloadError
 from .agroclimate_core.exposure_workflow import ExposureConfig, run_exposure_preparation
 from .agroclimate_core.hazard_selection import ConfigError
-from .agroclimate_core.llm import LlmError, LlmSettings, build_run_payload, request_interpretation
+from .agroclimate_core.llm import (
+    ConnectionReport,
+    LlmError,
+    LlmSettings,
+    build_run_payload,
+    check_connection,
+    request_interpretation,
+)
 from .agroclimate_core.period_choices import PeriodChoices, load_period_choices
 from .agroclimate_core.periods import PeriodUnavailableError
 from .agroclimate_core.risk_statistics import RiskStatistics, summarize_risk_map
-from .agroclimate_core.workflow import RunConfig, RunResult, WorkflowServices, run_risk_workflow
+from .agroclimate_core.workflow import RunConfig, RunResult, WorkflowServices, default_services, run_risk_workflow
 from .dock import RiskDock
 from .layers import AddedLayers, add_run_to_project, group_name_for
 from .settings import PluginSettings
@@ -68,7 +82,7 @@ class Prompter:
     def warn(self, title: str, text: str) -> None:
         QMessageBox.warning(self._parent, title, text)
 
-    def choose_exposure_action(self) -> str:
+    def choose_exposure_action(self, from_acmad: bool = False) -> str:
         """What to do when no exposure rasters exist: ``prepare``, ``test`` or ``cancel``.
 
         Offering the next step as a button, rather than a Yes/No question that tells the user to
@@ -78,11 +92,17 @@ class Prompter:
         box = QMessageBox(self._parent)
         box.setWindowTitle("Exposure data needed")
         box.setText("The risk map needs exposure data, which says where there is cropland and rangeland. None was found in the exposure folder.")
-        box.setInformativeText(
-            "Prepare it now: it downloads land cover for Niger (about 430 MB the first time, around 5 minutes), "
-            "and the run then continues by itself. You only do this once.\n\n"
-            "Or run now with constant placeholder exposure. That result is only a test."
-        )
+        if from_acmad:
+            how = (
+                "Prepare it now: it downloads four small files that ACMAD has already prepared (a few seconds), "
+                "and the run then continues by itself."
+            )
+        else:
+            how = (
+                "Prepare it now: it downloads land cover for Niger and builds the files (about 430 MB the first "
+                "time, around 5 minutes), and the run then continues by itself. You only do this once."
+            )
+        box.setInformativeText(f"{how}\n\nOr run now with constant placeholder exposure. That result is only a test.")
         prepare = box.addButton("Prepare exposure, then run", QMessageBox.AcceptRole)
         test = box.addButton("Run as a test anyway", QMessageBox.DestructiveRole)
         box.addButton(QMessageBox.Cancel)
@@ -121,6 +141,10 @@ def plain_error(exc: Exception) -> str:
         return f"ACMAD has no data for this period: {exc}"
     if isinstance(exc, LlmError):
         return str(exc)
+    if isinstance(exc, AdminBoundaryDownloadError):
+        return f"{exc} Untick \"Use ACMAD's admin level 1 regions\" to summarise by a polygon layer of your own instead."
+    if isinstance(exc, ExposureDownloadError):
+        return f"{exc} Untick \"Use ACMAD's prepared exposure\" to build it from land cover instead."
     return f"{type(exc).__name__}: {exc}. See the Log Messages panel (tab '{LOG_TAG}') for details."
 
 
@@ -135,6 +159,7 @@ class RiskPanelController:
         submit_task: Callable[[WorkflowTask], None] = _default_submit,
         prompter: Optional[Prompter] = None,
         llm_request: Callable[..., str] = request_interpretation,
+        llm_check: Callable[[LlmSettings], ConnectionReport] = check_connection,
     ) -> None:
         self.iface = iface
         self.styles_dir = Path(plugin_dir) / "styles"
@@ -143,6 +168,7 @@ class RiskPanelController:
         self._submit = submit_task
         self.prompter = prompter or Prompter(iface.mainWindow() if iface is not None else None)
         self._llm_request = llm_request
+        self._llm_check = llm_check
         self.result: Optional[RunResult] = None
         self.stats: Optional[RiskStatistics] = None
         self.region_rows: List[Dict[str, Any]] = []
@@ -164,15 +190,19 @@ class RiskPanelController:
             fallback=self.settings.max_fallback_dekads,
             llm=self.settings.load_llm(),
             key_remembered=self.settings.llm_key_is_remembered,
+            use_acmad_exposure=self.settings.use_acmad_exposure,
+            use_acmad_regions=self.settings.use_acmad_regions,
         )
         self.dock.runRequested.connect(self.on_run_requested)
         self.dock.prepareExposureRequested.connect(self.on_prepare_exposure_requested)
         self.dock.cancelRequested.connect(self.on_cancel_requested)
         self.dock.summariseRegionsRequested.connect(self.on_summarise_regions)
+        self.dock.summariseAcmadRegionsRequested.connect(self.on_summarise_acmad_regions)
         self.dock.interpretRequested.connect(self.on_interpret_requested)
         self.dock.openFolderRequested.connect(self.on_open_folder)
         self.dock.refreshPeriodsRequested.connect(self.refresh_periods)
         self.dock.saveLlmRequested.connect(self.on_save_llm)
+        self.dock.testLlmRequested.connect(self.on_test_llm)
 
     def dispose(self) -> None:
         """Close down: stop outstanding work and ignore anything that finishes later."""
@@ -254,7 +284,7 @@ class RiskPanelController:
             self.prompter.warn("Cannot run", str(exc))
             return
         if config.cultivated_raster is None and config.rangeland_raster is None:
-            choice = self.prompter.choose_exposure_action()
+            choice = self.prompter.choose_exposure_action(self.dock.use_acmad_check.isChecked())
             if choice == "prepare":
                 # The dialog already explained the download, so do not ask a second time.
                 self._run_after_exposure = True
@@ -293,15 +323,17 @@ class RiskPanelController:
 
     # ------------------------------------------------------------------ exposure
     def on_prepare_exposure_requested(self, config: ExposureConfig, confirmed: bool = False) -> None:
-        if not confirmed and not self.prompter.confirm(
+        # ACMAD's prepared files are about 66 KB, so only the land cover build needs a confirmation.
+        if config.source == "worldcover" and not confirmed and not self.prompter.confirm(
             "Prepare exposure",
             "This downloads ESA WorldCover land cover for Niger (about 430 MB the first time) and takes around 5 "
             "minutes. It only needs doing once. Continue?",
         ):
             return
         self.settings.exposure_dir = config.output_dir
+        self.settings.use_acmad_exposure = config.source == "acmad"
         self._start(
-            "Preparing exposure from land cover",
+            "Getting exposure from ACMAD" if config.source == "acmad" else "Preparing exposure from land cover",
             lambda progress, cancelled: run_exposure_preparation(config, services=self.services, progress=progress, is_cancelled=cancelled),
             lambda outputs: self._on_exposure_ready(config, outputs),
         )
@@ -327,36 +359,34 @@ class RiskPanelController:
             raise RuntimeError(f"Could not read the region layer: {outcome[1]}")
         return target
 
-    def on_summarise_regions(self, layer: QgsVectorLayer, name_field: str, code_field: str) -> None:
-        if self.result is None:
-            self.prompter.warn("No map yet", "Run a map first.")
-            return
-        if not name_field:
-            self.prompter.warn("Choose a name field", "Pick the field that holds each region's name.")
-            return
-        try:
-            output_dir = self.result.output_dir
-            admin_file = self._export_region_layer(layer, output_dir / "admin_regions.geojson")
-            exposure_dir = self.settings.exposure_dir
+    def _summarise_file(self, result: RunResult, admin_file: Path, name_field: str, code_field: Optional[str]):
+        """Summarise a finished run by the regions in ``admin_file``.
 
-            def optional(name: str) -> Optional[Path]:
-                path = exposure_dir / name
-                return path if path.is_file() else None
+        Uses only the shared core (no QGIS objects), so it is safe to call from a background task.
+        """
 
-            rows = summarize_by_admin(
-                self.result.outputs["risk_class"],
-                self.result.outputs["risk_score"],
-                admin_file,
-                name_field=name_field,
-                code_field=code_field or None,
-                cultivated_fraction_path=optional("cultivated_fraction.tif"),
-                rangeland_fraction_path=optional("rangeland_fraction.tif"),
-            )
-            write_summary_csv(rows, output_dir / "admin_risk_summary.csv")
-            joined = write_summary_geojson(admin_file, rows, output_dir / "admin_risk_summary.geojson", key_field=name_field)
-        except Exception as exc:
-            self._on_failure(exc)
-            return
+        exposure_dir = self.settings.exposure_dir
+
+        def optional(name: str) -> Optional[Path]:
+            path = exposure_dir / name
+            return path if path.is_file() else None
+
+        rows = summarize_by_admin(
+            result.outputs["risk_class"],
+            result.outputs["risk_score"],
+            admin_file,
+            name_field=name_field,
+            code_field=code_field or None,
+            cultivated_fraction_path=optional("cultivated_fraction.tif"),
+            rangeland_fraction_path=optional("rangeland_fraction.tif"),
+        )
+        write_summary_csv(rows, result.output_dir / "admin_risk_summary.csv")
+        joined = write_summary_geojson(admin_file, rows, result.output_dir / "admin_risk_summary.geojson", key_field=name_field)
+        return rows, joined
+
+    def _show_regions(self, rows: List[Dict[str, Any]], joined: Path, credit: str = "") -> None:
+        """Main thread: fill the table and put the joined regions on the map."""
+
         self.region_rows = rows
         self.dock.show_regions(rows)
         region_layer = QgsVectorLayer(str(joined), f"Risk by region ({self.result.hazard_label})", "ogr")
@@ -365,13 +395,70 @@ class RiskPanelController:
             QgsProject.instance().addMapLayer(region_layer, group is None)
             if group is not None:
                 group.addLayer(region_layer)
-        self._message(f"Summarised {len(rows)} regions. Files are in {output_dir}.", Qgis.Success)
+        self._message(f"Summarised {len(rows)} regions. Files are in {self.result.output_dir}. {credit}".strip(), Qgis.Success)
+
+    def on_summarise_regions(self, layer: QgsVectorLayer, name_field: str, code_field: str) -> None:
+        """Summarise by a polygon layer the user chose."""
+
+        if self.result is None:
+            self.prompter.warn("No map yet", "Run a map first.")
+            return
+        if not name_field:
+            self.prompter.warn("Choose a name field", "Pick the field that holds each region's name.")
+            return
+        self.settings.use_acmad_regions = False
+        try:
+            admin_file = self._export_region_layer(layer, self.result.output_dir / "admin_regions.geojson")
+            rows, joined = self._summarise_file(self.result, admin_file, name_field, code_field)
+        except Exception as exc:
+            self._on_failure(exc)
+            return
+        self._show_regions(rows, joined)
+
+    def on_summarise_acmad_regions(self) -> None:
+        """Summarise by ACMAD's admin level 1 regions: fetched and summarised in the background."""
+
+        if self.result is None:
+            self.prompter.warn("No map yet", "Run a map first.")
+            return
+        self.settings.use_acmad_regions = True
+        result = self.result
+        services = self.services or default_services()
+        boundaries_dir = result.output_dir.parent / "boundaries"  # beside the runs, reused by later ones
+
+        def work(_progress, cancelled):
+            admin_file = services.download_admin1(boundaries_dir, is_cancelled=cancelled)
+            return self._summarise_file(result, admin_file, ADMIN1_NAME_FIELD, ADMIN1_CODE_FIELD)
+
+        self._start("Summarising by ACMAD's regions", work, self._on_acmad_regions_ready)
+
+    @_ignore_after_dispose
+    def _on_acmad_regions_ready(self, summary) -> None:
+        rows, joined = summary
+        self.dock.set_running(False, "Region summary ready.")
+        self._show_regions(rows, joined, ADMIN1_ATTRIBUTION)
 
     # --------------------------------------------------------- language model
     def on_save_llm(self, llm: LlmSettings, remember: bool) -> None:
         self.settings.save_llm(llm, remember_key=remember)
         self.dock.refresh_llm_availability(self.settings.load_llm())
         self._message("Language model settings saved.", Qgis.Success, duration=4)
+
+    def on_test_llm(self, llm: LlmSettings) -> None:
+        """Check address, key and model with what is typed in the Settings tab (saved or not)."""
+
+        self.dock.llm_test_result.setText("Testing...")
+        self.dock.llm_test_result.setStyleSheet("")
+        self._start(
+            "Testing the language model connection",
+            lambda _progress, _cancelled: self._llm_check(llm),
+            self._on_llm_tested,
+        )
+
+    @_ignore_after_dispose
+    def _on_llm_tested(self, report: ConnectionReport) -> None:
+        self.dock.set_running(False, "Connection test finished.")
+        self.dock.show_llm_test_result(report.ok, report.summary)
 
     def on_interpret_requested(self) -> None:
         llm = self.settings.load_llm()

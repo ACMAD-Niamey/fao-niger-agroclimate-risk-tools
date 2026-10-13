@@ -13,11 +13,13 @@ from typing import Any, Dict, List, Optional
 
 from qgis.PyQt.QtCore import QDate, Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDateEdit,
     QDockWidget,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -27,6 +29,7 @@ from qgis.PyQt.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -38,12 +41,13 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import QgsMapLayerProxyModel
 from qgis.gui import QgsFieldComboBox, QgsFileWidget, QgsMapLayerComboBox
 
+from .agroclimate_core.admin1_download import ADMIN1_ATTRIBUTION
 from .agroclimate_core.exposure_workflow import CULTIVATED_SCORE_FILE, RANGELAND_SCORE_FILE, ExposureConfig
 from .agroclimate_core.llm import LlmSettings
 from .agroclimate_core.period_choices import PeriodChoices
 from .agroclimate_core.risk_statistics import RiskStatistics
 from .agroclimate_core.workflow import RunConfig, RunResult
-from .widgets import ClassBarChart
+from .widgets import ClassBarChart, RegionTableDialog
 
 OTHER_DATE = "other"
 MAX_LOG_LINES = 300
@@ -72,20 +76,34 @@ class RiskDock(QDockWidget):
     prepareExposureRequested = pyqtSignal(object)  # ExposureConfig
     cancelRequested = pyqtSignal()
     summariseRegionsRequested = pyqtSignal(object, str, str)  # layer, name field, code field
+    summariseAcmadRegionsRequested = pyqtSignal()  # ACMAD's admin level 1 regions
     interpretRequested = pyqtSignal()
     openFolderRequested = pyqtSignal()
     refreshPeriodsRequested = pyqtSignal()
     saveLlmRequested = pyqtSignal(object, bool)  # LlmSettings, remember key
+    testLlmRequested = pyqtSignal(object)  # LlmSettings as typed, saved or not
 
     def __init__(self, parent=None) -> None:
         super().__init__("FAO Niger Agroclimate Risk", parent)
         self.setObjectName("FaoNigerAgroclimateDock")
         self._choices = PeriodChoices()
+        self.region_dialog = None  # the larger region table, created on first use
+        self._region_rows: List[Dict[str, Any]] = []
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_run_tab(), "Run")
-        self._tabs.addTab(self._build_results_tab(), "Results")
-        self._tabs.addTab(self._build_settings_tab(), "Settings")
+        # Each tab scrolls, so nothing falls off the bottom when the panel is short (the Results tab is tall).
+        self._tabs.addTab(self._scrollable(self._build_run_tab()), "Run")
+        self._tabs.addTab(self._scrollable(self._build_results_tab()), "Results")
+        self._tabs.addTab(self._scrollable(self._build_settings_tab()), "Settings")
         self.setWidget(self._tabs)
+
+    @staticmethod
+    def _scrollable(page: QWidget) -> QScrollArea:
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # the page adapts to the width; only height scrolls
+        area.setWidget(page)
+        return area
 
     # ------------------------------------------------------------------ Run tab
     def _build_run_tab(self) -> QWidget:
@@ -131,18 +149,28 @@ class RiskDock(QDockWidget):
         self.exposure_widget = _directory_widget(Path.home())
         self.exposure_status = QLabel()
         self.exposure_status.setWordWrap(True)
-        self.prepare_button = QPushButton("Prepare from land cover (about 5 minutes, needs internet)")
+        self.use_acmad_check = QCheckBox("Use ACMAD's prepared exposure (fast, a few seconds)")
+        self.use_acmad_check.setChecked(True)
+        self.use_acmad_check.setToolTip(
+            "Downloads four small rasters (about 66 KB) that ACMAD prepared from ESA WorldCover land cover. "
+            "Untick to build them yourself from land cover: about 5 minutes and about 430 MB the first time. "
+            "ACMAD's version uses provisional cut-offs that are still under review."
+        )
+        self.prepare_button = QPushButton()
         self.mask_check = QCheckBox("Map only cropland and rangeland (recommended)")
         self.mask_check.setChecked(True)
         self.mask_check.setToolTip("Cells with no cropland or rangeland are left blank instead of being scored low.")
         exposure_layout.addWidget(QLabel("Folder with the prepared exposure rasters"))
         exposure_layout.addWidget(self.exposure_widget)
         exposure_layout.addWidget(self.exposure_status)
+        exposure_layout.addWidget(self.use_acmad_check)
         exposure_layout.addWidget(self.prepare_button)
         exposure_layout.addWidget(self.mask_check)
         layout.addWidget(exposure)
         self.exposure_widget.fileChanged.connect(lambda _path: self.refresh_exposure_status())
         self.prepare_button.clicked.connect(self._emit_prepare)
+        self.use_acmad_check.toggled.connect(self._sync_prepare_button_text)
+        self._sync_prepare_button_text()
 
         output = QGroupBox("Output folder")
         output_layout = QVBoxLayout(output)
@@ -222,6 +250,13 @@ class RiskDock(QDockWidget):
         self.period_combo.blockSignals(False)
         self._sync_date_visibility()
 
+    def _sync_prepare_button_text(self, *_args: Any) -> None:
+        self.prepare_button.setText(
+            "Get exposure from ACMAD (a few seconds)"
+            if self.use_acmad_check.isChecked()
+            else "Prepare from land cover (about 5 minutes, needs internet)"
+        )
+
     def _sync_date_visibility(self, *_args: Any) -> None:
         """Show the date box only for 'Other date': next to a published period it is just noise."""
 
@@ -253,7 +288,7 @@ class RiskDock(QDockWidget):
         self.class_table.verticalHeader().hide()
         self.class_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.class_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.class_table.setMaximumHeight(150)
+        self.class_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # four rows: show them all, never scroll
         layout.addWidget(self.class_table)
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
@@ -261,7 +296,17 @@ class RiskDock(QDockWidget):
 
         regions = QGroupBox("Summary by region")
         regions_layout = QVBoxLayout(regions)
-        regions_layout.addWidget(QLabel("Polygon layer with the regions (for example admin level 1)"))
+        self.use_acmad_regions_check = QCheckBox("Use ACMAD's admin level 1 regions (Niger's 8 regions, from OCHA)")
+        self.use_acmad_regions_check.setChecked(True)
+        self.use_acmad_regions_check.setToolTip(
+            "Downloads a small file (about 180 KB) with Niger's regions. Untick to summarise by a polygon layer "
+            "of your own, for example departments or intervention zones."
+        )
+        self.region_attribution = QLabel(ADMIN1_ATTRIBUTION)
+        self.region_attribution.setWordWrap(True)
+        regions_layout.addWidget(self.use_acmad_regions_check)
+        regions_layout.addWidget(self.region_attribution)
+        regions_layout.addWidget(QLabel("Or a polygon layer of your own"))
         self.region_layer_combo = QgsMapLayerComboBox()
         self.region_layer_combo.setFilters(QgsMapLayerProxyModel.PolygonLayer)
         self.region_layer_combo.setAllowEmptyLayer(True)
@@ -282,10 +327,17 @@ class RiskDock(QDockWidget):
         self.region_table.verticalHeader().hide()
         self.region_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.region_table.setSortingEnabled(True)
-        self.region_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.region_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.region_table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)  # smooth sideways scrolling
         regions_layout.addWidget(self.region_table)
+        self.region_wide_button = QPushButton("Larger table (copy to a spreadsheet)")
+        self.region_wide_button.setEnabled(False)
+        self.region_wide_button.clicked.connect(self._open_region_dialog)
+        regions_layout.addWidget(self.region_wide_button)
         layout.addWidget(regions)
         self.summarise_button.clicked.connect(self._emit_summarise)
+        self.use_acmad_regions_check.toggled.connect(self._sync_region_source)
+        self._sync_region_source()
 
         interpretation = QGroupBox("Plain-language description (optional)")
         interpretation_layout = QVBoxLayout(interpretation)
@@ -320,6 +372,13 @@ class RiskDock(QDockWidget):
         self.llm_model = QLineEdit()
         self.llm_key = QLineEdit()
         self.llm_key.setEchoMode(QLineEdit.Password)
+        self.llm_extra = QLineEdit()
+        self.llm_extra.setPlaceholderText('optional, e.g. {"chat_template_kwargs": {"enable_thinking": false}}')
+        self.llm_extra.setToolTip(
+            "Optional. A JSON object added to every request, for services that need it. Reasoning models can "
+            'think for a minute or more before answering; {"chat_template_kwargs": {"enable_thinking": false}} '
+            "turns that off on services that support it (for example Qwen models served with vLLM). Leave empty if unsure."
+        )
         self.llm_language = QComboBox()
         self.llm_language.addItem("English", "en")
         self.llm_language.addItem("Français", "fr")
@@ -327,6 +386,7 @@ class RiskDock(QDockWidget):
         form.addRow("Service address", self.llm_url)
         form.addRow("Model", self.llm_model)
         form.addRow("API key", self.llm_key)
+        form.addRow("Extra request fields", self.llm_extra)
         form.addRow("Language", self.llm_language)
         form.addRow(self.llm_remember)
         layout.addWidget(group)
@@ -337,9 +397,19 @@ class RiskDock(QDockWidget):
         )
         note.setWordWrap(True)
         layout.addWidget(note)
+        buttons = QHBoxLayout()
+        self.test_llm_button = QPushButton("Test connection")
+        self.test_llm_button.setToolTip("Checks the address, the key and the model one by one, using what is typed above.")
         self.save_llm_button = QPushButton("Save")
-        layout.addWidget(self.save_llm_button)
+        buttons.addWidget(self.test_llm_button)
+        buttons.addWidget(self.save_llm_button)
+        layout.addLayout(buttons)
+        self.llm_test_result = QLabel()
+        self.llm_test_result.setWordWrap(True)
+        self.llm_test_result.setTextInteractionFlags(Qt.TextSelectableByMouse)  # so the text can be copied into a message
+        layout.addWidget(self.llm_test_result)
         self.save_llm_button.clicked.connect(self._emit_save_llm)
+        self.test_llm_button.clicked.connect(self._emit_test_llm)
         layout.addStretch(1)
         return page
 
@@ -366,7 +436,11 @@ class RiskDock(QDockWidget):
 
     def collect_exposure_config(self) -> ExposureConfig:
         output_dir = Path(self.exposure_widget.filePath())
-        return ExposureConfig(output_dir=output_dir, cache_dir=output_dir.parent / "cache" / "worldcover")
+        return ExposureConfig(
+            output_dir=output_dir,
+            cache_dir=output_dir.parent / "cache" / "worldcover",
+            source="acmad" if self.use_acmad_check.isChecked() else "worldcover",
+        )
 
     def collect_llm_settings(self) -> LlmSettings:
         return LlmSettings(
@@ -374,6 +448,7 @@ class RiskDock(QDockWidget):
             api_key=self.llm_key.text(),
             model=self.llm_model.text(),
             language=self.llm_language.currentData() or "en",
+            extra_fields=self.llm_extra.text(),
         )
 
     def _exposure_files(self):
@@ -390,22 +465,43 @@ class RiskDock(QDockWidget):
     def _emit_prepare(self) -> None:
         self.prepareExposureRequested.emit(self.collect_exposure_config())
 
+    def _sync_region_source(self, *_args: Any) -> None:
+        """The layer pickers only matter when the user supplies their own regions."""
+
+        own = not self.use_acmad_regions_check.isChecked()
+        for widget in (self.region_layer_combo, self.region_name_combo, self.region_code_combo):
+            widget.setEnabled(own)
+        self.region_attribution.setVisible(not own)
+
     def _emit_summarise(self) -> None:
+        if self.use_acmad_regions_check.isChecked():
+            self.summariseAcmadRegionsRequested.emit()
+            return
         layer = self.region_layer_combo.currentLayer()
         if layer is not None:
             self.summariseRegionsRequested.emit(layer, self.region_name_combo.currentField(), self.region_code_combo.currentField())
+
+    def _emit_test_llm(self) -> None:
+        self.testLlmRequested.emit(self.collect_llm_settings())
+
+    def show_llm_test_result(self, ok: bool, text: str) -> None:
+        self.llm_test_result.setText(text)
+        self.llm_test_result.setStyleSheet("color: #1a6b1a;" if ok else "color: #a40000;")
 
     def _emit_save_llm(self) -> None:
         self.saveLlmRequested.emit(self.collect_llm_settings(), self.llm_remember.isChecked())
 
     # ------------------------------------------------------------- state from outside
-    def load_saved_options(self, *, output_root: Path, exposure_dir: Path, strict: bool, fallback: int, llm: LlmSettings, key_remembered: bool) -> None:
+    def load_saved_options(self, *, output_root: Path, exposure_dir: Path, strict: bool, fallback: int, llm: LlmSettings, key_remembered: bool, use_acmad_exposure: bool = True, use_acmad_regions: bool = True) -> None:
         self.output_widget.setFilePath(str(output_root))
         self.exposure_widget.setFilePath(str(exposure_dir))
         self.strict_check.setChecked(strict)
         self.fallback_spin.setValue(fallback)
+        self.use_acmad_check.setChecked(use_acmad_exposure)
+        self.use_acmad_regions_check.setChecked(use_acmad_regions)
         self.llm_url.setText(llm.base_url)
         self.llm_model.setText(llm.model)
+        self.llm_extra.setText(llm.extra_fields)
         self.llm_key.setText(llm.api_key)
         self.llm_remember.setChecked(key_remembered)
         index = self.llm_language.findData(llm.language)
@@ -465,6 +561,7 @@ class RiskDock(QDockWidget):
             for column, text in enumerate((cls.name.capitalize(), f"{cls.area_km2:,.0f}", f"{cls.share_pct:.1f}%")):
                 self.class_table.setItem(row, column, QTableWidgetItem(text))
         mean = "n/a" if stats.mean_risk_score is None else f"{stats.mean_risk_score:.2f} of 3"
+        self._fit_table_height(self.class_table)
         self.summary_label.setText(
             f"Scored area: {stats.scored_area_km2:,.0f} km² ({stats.scored_cells:,} of {stats.total_cells:,} cells). "
             f"Mean score {mean}. Worst class present: {stats.worst_class}."
@@ -474,7 +571,21 @@ class RiskDock(QDockWidget):
         self.interpretation_view.clear()
         self._tabs.setCurrentIndex(1)
 
+    @staticmethod
+    def _fit_table_height(table: QTableWidget, max_rows: Optional[int] = None, sideways_scrollbar: bool = False) -> None:
+        """Make a table exactly as tall as its rows (up to ``max_rows``), so a larger font cannot hide one.
+
+        A table that scrolls sideways also needs room for its scrollbar, or the bar covers the last row.
+        """
+
+        table.resizeRowsToContents()
+        rows = table.rowCount() if max_rows is None else min(table.rowCount(), max_rows)
+        body = sum(table.rowHeight(row) for row in range(rows))
+        bar = table.horizontalScrollBar().sizeHint().height() if sideways_scrollbar else 0
+        table.setFixedHeight(body + table.horizontalHeader().height() + bar + 2 * table.frameWidth() + 4)
+
     def show_regions(self, rows: List[Dict[str, Any]]) -> None:
+        self._region_rows = list(rows)
         self.region_table.setSortingEnabled(False)
         self.region_table.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
@@ -487,6 +598,20 @@ class RiskDock(QDockWidget):
                     text = "n/a" if value is None else (f"{value:,.1f}" if isinstance(value, float) else str(value))
                 self.region_table.setItem(row_index, column, QTableWidgetItem(text))
         self.region_table.setSortingEnabled(True)
+        self.region_table.resizeColumnsToContents()
+        # Show every region (up to a dozen) instead of squeezing the table to one row; the page scrolls if needed.
+        self._fit_table_height(self.region_table, max_rows=12, sideways_scrollbar=True)
+        self.region_wide_button.setEnabled(bool(rows))
+        if self.region_dialog is not None:
+            self.region_dialog.set_rows(rows)
+
+    def _open_region_dialog(self) -> None:
+        if self.region_dialog is None:
+            self.region_dialog = RegionTableDialog(self)
+        self.region_dialog.set_rows(self._region_rows)
+        self.region_dialog.show()
+        self.region_dialog.raise_()
+        self.region_dialog.activateWindow()
 
     def show_interpretation(self, text: str) -> None:
         self.interpretation_view.setPlainText(text)

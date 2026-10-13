@@ -64,6 +64,26 @@ class PluginSettings:
     def max_fallback_dekads(self, value: int) -> None:
         self._set("max_fallback_dekads", int(value))
 
+    @property
+    def use_acmad_exposure(self) -> bool:
+        """Fetch ACMAD's prepared exposure (seconds) rather than build it from land cover (minutes)."""
+
+        return self._get("use_acmad_exposure", True, bool)
+
+    @use_acmad_exposure.setter
+    def use_acmad_exposure(self, value: bool) -> None:
+        self._set("use_acmad_exposure", bool(value))
+
+    @property
+    def use_acmad_regions(self) -> bool:
+        """Summarise by ACMAD's admin level 1 regions rather than a layer the user picks."""
+
+        return self._get("use_acmad_regions", True, bool)
+
+    @use_acmad_regions.setter
+    def use_acmad_regions(self, value: bool) -> None:
+        self._set("use_acmad_regions", bool(value))
+
     # --- language model --------------------------------------------------------------------
     def load_llm(self) -> LlmSettings:
         stored_key = self._get("llm/api_key", "", str)
@@ -72,6 +92,7 @@ class PluginSettings:
             api_key=stored_key or self._session_key,
             model=self._get("llm/model", "", str),
             language=self._get("llm/language", "en", str),
+            extra_fields=self._get("llm/extra_fields", "", str),
         )
 
     @property
@@ -82,6 +103,7 @@ class PluginSettings:
         self._set("llm/base_url", settings.base_url.strip())
         self._set("llm/model", settings.model.strip())
         self._set("llm/language", settings.language)
+        self._set("llm/extra_fields", settings.extra_fields.strip())
         self._session_key = settings.api_key.strip()
         # Writing an empty value clears a key that was remembered earlier.
         self._set("llm/api_key", self._session_key if remember_key else "")

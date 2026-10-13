@@ -19,7 +19,7 @@ If you do not see the toolbar icon or the menu entry, check `Plugins > Manage an
 
 ## What it looks like
 
-The panel is a docked window with three tabs. This is the **Run** tab, with the latest published period selected by default:
+The panel is a docked window with three tabs, and each tab scrolls, so nothing is cut off in a short panel. This is the **Run** tab, with the latest published period selected by default:
 
 ![Run tab](images/panel-run-tab.png)
 
@@ -30,6 +30,10 @@ The **Period** list shows only what ACMAD has published, latest first:
 After a run, the **Results** tab shows the class chart and table, and the region summary:
 
 ![Results tab](images/panel-results-tab.png)
+
+**Larger table** opens every figure of the region summary in a window of its own, to sort, scroll and copy:
+
+![Larger region table](images/region-table-larger-window.png)
 
 And the styled risk class layer on the map (here with OCHA admin level 1 outlines drawn on top):
 
@@ -46,7 +50,8 @@ The older dialog titled "Score a zonal layer (vector, advanced)" is a different,
 | What to map | **Current conditions** for what is happening now (the drought indicator, CDI). **Seasonal outlook** for what the season is expected to bring |
 | Period | Pick the period to map from the list. It shows only what ACMAD has **published**, latest first, and the latest ("Latest available") is selected by default. For the seasonal outlook it lists the published seasons instead. **Refresh** asks ACMAD again |
 | Other date | The last list entry. It reveals a date box for a date you type. Use it if you are offline; if that date is not published yet, the panel uses the latest earlier period and tells you |
-| Exposure folder | A folder holding `cultivated_exposure.tif` and `rangeland_exposure.tif`. **The first time there is nothing in it**: press **Run and add to map** and the panel offers **Prepare exposure, then run**. It downloads land cover for Niger (about 430 MB, around 5 minutes, needs internet) and then carries on with the run by itself. You only do this once. You can also press **Prepare from land cover** yourself, or point the folder at one that already has the rasters. The choice *Run as a test anyway* uses constant placeholder exposure and is not a real result |
+| Exposure folder | A folder holding `cultivated_exposure.tif` and `rangeland_exposure.tif`. **The first time there is nothing in it**: press **Run and add to map** and the panel offers **Prepare exposure, then run**. With **Use ACMAD's prepared exposure** ticked (the default) it downloads four small files (about 66 KB) that ACMAD has already prepared, in a few seconds, checks them, and carries on with the run by itself. Untick the box to build the files yourself from ESA WorldCover land cover instead: about 430 MB and 5 minutes, once. You can also press the button under the box yourself, or point the folder at one that already has the rasters. *Run as a test anyway* uses constant placeholder exposure and is not a real result |
+| Use ACMAD's prepared exposure | Leave ticked. ACMAD's files use the same provisional cut-offs as the land cover build, so the maps are the same. Untick it if you want to build exposure from land cover yourself, for example with different cut-offs, or if ACMAD's server cannot be reached |
 | Map only cropland and rangeland | Leave ticked. Blank cells are not scored and are not "low risk" |
 | Output folder | Where the rasters and `run_metadata.json` are written |
 | Advanced | Normally leave alone. It limits how far back the panel may fall back |
@@ -59,7 +64,7 @@ When you open the panel it asks ACMAD which periods are published, in the backgr
 
 - A group `Agropastoral risk - <period>` at the top of the Layers panel with the **risk class** (visible), the **risk score** and the **hazard** (hidden, tick them to see). The map zooms to Niger.
 - The **Results** tab opens: a chart and table of how much of the scored area is in each class, the mean score, and a note if the period is older than you asked for.
-- For a summary by region, add a polygon layer of regions to QGIS (for example OCHA admin level 1), choose it in the Results tab, pick the name field and press **Summarise by region**. A table appears and a `Risk by region` layer is added.
+- For a summary by region, press **Summarise by region** in the Results tab. With **Use ACMAD's admin level 1 regions** ticked (the default) it fetches Niger's 8 regions from ACMAD (about 180 KB, a few seconds) and needs nothing else; a table appears and a `Risk by region` layer is added to the map. The table scrolls sideways; **Larger table (copy to a spreadsheet)** opens every figure in a window of its own, where you can sort the columns and press **Copy table** to paste it into a spreadsheet. To summarise by your own regions instead, untick the box, pick a polygon layer that is loaded in QGIS (departments, intervention zones, anything), choose its name field and press the same button.
 - **Open results folder** shows the files, including the CSV and GeoJSON of the region summary.
 
 ## Which boundary is used where
@@ -67,8 +72,14 @@ When you open the panel it asks ACMAD which periods are published, in the backgr
 | Step | Boundary |
 | --- | --- |
 | Building the risk map | Niger's country outline from ACMAD's GeoServer (admin level 0). Recorded in `run_metadata.json` under `boundary` |
-| Region summary | Whatever polygon layer you choose; the checked-in tests use the official OCHA admin level 1 |
+| Region summary | By default ACMAD's copy of the official OCHA admin level 1 regions (credit: OCHA Common Operational Dataset, CC BY-IGO). Or any polygon layer you choose |
 
 ## Optional: plain-language description
 
-In **Settings**, enter a service address, API key and model for any OpenAI-style language model service. The Results tab then offers **Describe with the language model**. It asks before sending, sends only summary figures, and marks every description as a draft for expert review. The maps and statistics work without it.
+In **Settings**, enter a service address, API key and model for any OpenAI-style language model service, press **Test connection**, then **Save**. On the Results tab, **Describe with the language model** asks you to confirm and then writes a short draft description of the map. It is off until you set it up, it only sends summary figures, and every description is marked as a draft for expert review. Setup, exactly what is sent, reasoning models (and the extra setting they may need), and the error messages are in [language model](language-model.md).
+
+## More help
+
+- Installing, updating and where files go: [installation](installation.md)
+- Something not working: [troubleshooting](troubleshooting.md)
+- What the layers, classes and blank areas mean: [reading the maps](reading-the-maps.md)

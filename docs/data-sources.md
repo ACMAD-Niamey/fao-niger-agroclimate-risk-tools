@@ -80,6 +80,23 @@ The catalogue also lists `combined_drought_hazard_gpcc` (same product on the GPC
 | Licence | CC BY 4.0. Credit ESA WorldCover on maps |
 | Access | No login. Needs no Google Earth Engine account |
 
+## Prepared exposure on ACMAD's storage
+
+The exposure rasters built from WorldCover are published on ACMAD's MinIO so a user does not have to build them:
+
+| | |
+| --- | --- |
+| Location | `https://minio.acmad.org/geodata/fao-niger-agroclimate/niger/exposure/` |
+| Files | `cultivated_exposure.tif`, `cultivated_fraction.tif`, `rangeland_exposure.tif`, `rangeland_fraction.tif` (about 66 KB in all) |
+| Access | Public read; no credentials. Checked 2026-10-13 |
+| Content | Cropland and shrub/grass share of each 0.1 degree cell, and the 0-3 scores binned at the provisional 5%, 25% and 50% cut-offs |
+
+The plugin and `scripts/prepare_exposure_rasters.py --source acmad` download these files. They are not trusted blindly: each must open as a raster, hold values in range (scores 0 to 3, fractions 0 to 1) and share one grid; they are checked in a scratch folder and only then moved into place, so a failed download never leaves a half-written exposure folder. The SHA-256 of each file and where it came from are recorded in `exposure_source.json` beside the rasters, and in `run_metadata.json` under `exposure.prepared_from`.
+
+**The bucket is world-readable.** Anything uploaded to the `geodata` bucket can be downloaded by anyone, including the 430 MB of cached land cover windows in `landcover/`. That is fine for open derived data such as this, but do not put anything private there.
+
+To publish new exposure (for example after the cut-offs are reviewed), rebuild it from land cover and upload it with `scripts/upload_exposure_to_minio.py --skip-landcover`. Existing plugin versions fetch whatever is there, so announce the change and note it in the changelog.
+
 ## Administrative boundaries
 
 | Source | Units | Licence | Use |
@@ -90,6 +107,19 @@ The catalogue also lists `combined_drought_hazard_gpcc` (same product on the GPC
 | GADM 4.1 | 8 | Non-commercial only | Avoid for FAO work |
 
 Credit OCHA when publishing maps made with the COD boundaries.
+
+### ACMAD's copy of the admin level 1 regions
+
+So that the plugin's region summary works with one click, a copy of the OCHA admin level 1 file is published beside the prepared exposure:
+
+| | |
+| --- | --- |
+| Location | `https://minio.acmad.org/geodata/fao-niger-agroclimate/niger/boundaries/niger_admin1_ocha.geojson` |
+| Content | Niger's 8 regions, polygons in longitude and latitude, fields `adm1_name` and `adm1_pcode` (NE001 to NE008). OCHA COD-AB version v02, valid from 2023-07-20 |
+| Size and access | About 180 KB; public read, no credentials. Checked 2026-10-13 |
+| Licence | CC BY-IGO: redistribution is allowed with credit to OCHA. The plugin shows the credit beside the summary |
+
+The plugin checks the file before using it (GeoJSON polygons with those two fields, in longitude and latitude) and installs it atomically; its origin and SHA-256 are recorded in `niger_admin1_source.json`. To publish an updated file, put it at `outputs/admin/niger_adm1_ocha.geojson` and run `scripts/upload_exposure_to_minio.py --skip-landcover`; the script refuses to upload a file the plugin would reject. Departments (admin level 2) and communes (admin level 3) are in the same OCHA download and could be offered the same way.
 
 ## Shared storage (MinIO)
 

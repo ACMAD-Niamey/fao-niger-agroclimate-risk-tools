@@ -40,7 +40,7 @@ Checked on real data on 2026-10-12: the current CDI (period 2026-09-11, used bec
 
 1. Review thresholds, class mapping and weights with FAO and ACMAD; move them into one configuration file.
 2. Try the released plugin (0.3.2) with FAO staff and adjust the styles and wording from their feedback.
-3. Choose water-point and vulnerability sources.
+3. Choose water-point and vulnerability sources. Republish ACMAD's prepared exposure once the cut-offs are confirmed.
 4. Raise the straight data edge in the CDI near 12.1 degrees east with ACMAD (see [data sources](data-sources.md)).
 5. Deliverable 2: use the `combined_drought_forecast_era5` product (five classes, wetter to drier) with a message library to draft advisories.
 6. Deliverable 4: define trigger rules over CDI, combined hazard and exposure, and test them on past seasons.

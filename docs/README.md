@@ -6,7 +6,10 @@ This folder contains the technical and product documentation for the FAO Niger a
 
 - [Technical note](technical-note.md): the main design document describing the proposed products, data sources, formulas, implementation architecture, and phased development plan.
 - [Project plan and current status](project-plan-status.md): the four deliverables, how far each has come, and next steps.
+- [Installation](installation.md): install, update, uninstall; where files go; what the plugin downloads.
 - [Using the panel](using-the-panel.md): what to choose in the QGIS panel, step by step.
+- [Language model](language-model.md): the optional plain-language description: setup, what is sent, reasoning models, errors.
+- [Troubleshooting](troubleshooting.md): messages and symptoms, and how to report a problem.
 - [Releasing](releasing.md): how to version, build and publish a plugin release.
 - [Reading the risk maps](reading-the-maps.md): a guide for people who open the outputs in QGIS.
 - [Data sources](data-sources.md): every external input, what it contains and what was verified.

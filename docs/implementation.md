@@ -12,10 +12,12 @@ All logic lives in `src/agroclimate_core/` and has no QGIS dependency, so script
 | `workflow.py` | **The end-to-end risk run**: `RunConfig` in, `RunResult` out. Used by the script and the plugin |
 | `hazard_selection.py` | Chooses the CDI dekad or season to use from what ACMAD has published |
 | `raster_pipeline.py` | Clips the hazard to Niger, aligns exposure, scores risk, writes the GeoTIFFs |
-| `exposure_workflow.py`, `grid.py` | Builds exposure for Niger from land cover, on a grid derived from the boundary |
+| `exposure_workflow.py`, `grid.py` | Gets exposure for Niger: builds it from land cover on a grid derived from the boundary, or fetches ACMAD's prepared files (`source="acmad"`) |
+| `admin1_download.py` | Downloads, validates and atomically installs ACMAD's copy of the OCHA admin level 1 regions for the region summary |
+| `exposure_download.py` | Downloads, validates and atomically installs ACMAD's prepared exposure rasters; records their hashes and origin |
 | `risk_statistics.py` | Area and share of each risk class, for the results panel |
 | `period_choices.py` | The published CDI dekads and seasons to offer in the period drop-down; never raises, reports problems in plain words |
-| `llm.py` | Optional language model description (OpenAI-style protocol); builds the allow-listed payload |
+| `llm.py` | Optional language model description (OpenAI-style protocol); builds the allow-listed payload; plain-language errors per HTTP status; `check_connection` tells a wrong address, a rejected key and an unknown model apart; answers are streamed, with optional extra request fields |
 | `cancellation.py` | The exception a cancelled run raises |
 | `exposure.py` | WorldCover to class fractions per cell, bins fractions to 0-3 scores, fetches and caches tiles |
 | `periods.py` | Dekad and season arithmetic; chooses a period from what is published, with a fallback limit |
@@ -41,7 +43,7 @@ The panel is a thin shell. It holds no workflow logic; it calls the same `run_ri
 | `tasks.py` | `QgsTask` wrapper: runs a workflow in a background thread with progress and cancellation |
 | `layers.py` | Adds a run's rasters to the project as a group and styles them; replaces the group on re-run |
 | `settings.py` | Remembered options in the QGIS profile; the language model key |
-| `styles.py`, `widgets.py` | Style lookup and colours (the chart reads the same `.qml` files as the map); the bar chart |
+| `styles.py`, `widgets.py` | Style lookup and colours (the chart reads the same `.qml` files as the map); the bar chart; the larger region table window |
 
 How it behaves:
 
